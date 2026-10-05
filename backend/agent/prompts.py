@@ -10,24 +10,31 @@ QUESTION ANALYSIS & COVERAGE MATRIX RULES
    - ATTRIBUTE: What specific properties/dimensions the user wants to know about those entities (e.g. "landmark selection", "completeness", "optimality").
 2. INSTRUCTION WORDS ARE NOT ENTITIES:
    - NEVER put words like "compare", "comparison", "explain", "find", "describe", "terms", "whether", "method" into `entities` or `keywords`!
-3. COMPARISON QUESTIONS:
+3. BROAD OVERVIEW / EXPLORATORY QUESTIONS:
+   - If the user asks for a broad overview or exploratory summary of an entity (e.g., "explain everything about X", "give an overview of X", "explain X in detail", "what does the document say about X", "describe X comprehensively"):
+     - Set `"intent": "broad_overview"`
+     - In `"entities"`, put the target subject (e.g. `["Artificial Intelligence"]`).
+     - In `"attributes"`, list major overview dimensions / subtopics (e.g. `["history", "approaches", "major areas"]`).
+     - In `"likely_headings"`, suggest major section headings related to the topic (e.g. `["Brief history of AI", "Approaches to AI", "AI areas"]`).
+     - In `"strategy"`, specify `"heading_then_keyword_then_page"` so that headings locate representative sections across the document.
+4. COMPARISON QUESTIONS:
    - If the question compares multiple items (e.g., "Compare X, Y, and Z in terms of A, B, and C"):
      - Set `"intent": "comparison"`
      - In `"entities"`, list EVERY distinct entity being compared (e.g. `["grid discretization", "visibility graph", "probabilistic roadmap"]`).
      - In `"attributes"`, list EVERY requested comparison property (e.g. `["landmark selection", "completeness", "optimality"]`).
      - In `"keywords"`, include distinct search terms for ALL entities and attributes so that retrieval searches for EVERY entity!
-4. DISALLOWED RETRIEVAL KEYWORDS:
+5. DISALLOWED RETRIEVAL KEYWORDS:
    - NEVER output generic question words, auxiliary verbs, prepositions, or vague query terms as standalone entities or keywords!
    - Specific forbidden standalone retrieval keywords include:
      what, when, where, who, why, how, which, is, are, was, were, the, a, an, of, in, on, for, to, and, or, term, difference, does, do, each, whether
    - If asked "When was the term AI introduced?", the entity is "AI" (or "Artificial Intelligence") and the attribute is "introduction date" or "origin". The search keywords MUST be ["AI", "Artificial Intelligence", "Dartmouth", "John McCarthy"]. Do NOT search "when", "was", or "term"!
    - If asked "What is an intelligent agent?", the entity is "intelligent agent" and keywords are ["intelligent agent", "perceives", "acts"].
-5. Suggest section headings ONLY if the question is strongly structural/navigational.
-6. Identify temporal/supersession requirements ("latest", "amended", "revised", "current").
+6. Suggest section headings ONLY if the question is strongly structural/navigational or a broad overview.
+7. Identify temporal/supersession requirements ("latest", "amended", "revised", "current").
 
 OUTPUT FORMAT (Respond ONLY with valid JSON):
 {
-  "intent": "comparison" | "factual" | "structural" | "policy_temporal" | "multi_part",
+  "intent": "comparison" | "factual" | "structural" | "policy_temporal" | "multi_part" | "broad_overview",
   "entities": ["entity1", "entity2", "entity3"],
   "attributes": ["attribute1", "attribute2", "attribute3"],
   "keywords": ["entity1", "entity2", "entity3", "attr1", "attr2"],
@@ -92,6 +99,14 @@ CORE PRINCIPLES
    - State the synthesized answer directly as the primary response.
    - Include source page(s) after the answer on a new line:
      "Source: Page X" (or "Source: Page X, Page Y").
+
+6. BROAD OVERVIEW QUESTIONS
+   - If the user asks for a broad overview (e.g. "Explain everything about X", "give an overview of X", "explain X in detail", "what does the document say about X", "describe X comprehensively"):
+     * Synthesize a coherent, structured overview based ONLY on the retrieved document evidence.
+     * Organize by major topics/headings actually supported by the evidence (e.g. using clean sections such as History, Approaches, Major AI Areas).
+     * Summarize the core points rather than dumping raw page text or sentence fragments.
+     * Do NOT invent external knowledge or pretend to cover topics not in the retrieved evidence.
+     * Cite all supporting source pages at the end: "Source: Page 1, Page 3, Page 4, Page 5".
 
 ==================================================
 FINAL ANSWER OUTPUT FORMAT

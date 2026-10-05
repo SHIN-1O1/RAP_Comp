@@ -30,6 +30,33 @@ DISALLOWED_STANDALONE_WORDS = {
 
 
 
+def detect_broad_overview_question(q: str) -> tuple[bool, Optional[str]]:
+    """
+    Detects broad overview / exploratory requests such as:
+    - explain everything about X
+    - give an overview of X / overview of X
+    - explain X in detail
+    - what does the document say about X
+    - describe X comprehensively
+    """
+    q_clean = q.strip().rstrip('?.')
+    patterns = [
+        r'^(?:please\s+)?(?:explain|tell\s+me)\s+(?:everything|all)\s+about\s+(.+)',
+        r'^(?:please\s+)?(?:give\s+(?:an?\s+)?overview\s+of|overview\s+of|provide\s+(?:an?\s+)?overview\s+of)\s+(.+)',
+        r'^(?:please\s+)?(?:explain|describe)\s+(.+?)\s+in\s+detail',
+        r'^(?:please\s+)?what\s+does\s+(?:the\s+)?document\s+say\s+about\s+(.+)',
+        r'^(?:please\s+)?(?:describe|explain)\s+(.+?)\s+comprehensively',
+        r'^(?:please\s+)?(?:broad|comprehensive)\s+overview\s+of\s+(.+)',
+    ]
+    for pat in patterns:
+        m = re.search(pat, q_clean, flags=re.IGNORECASE)
+        if m:
+            entity = m.group(1).strip()
+            entity = re.sub(r'\s+\b(according\s+to|in|based\s+on)\s+(this\s+)?document\b.*$', '', entity, flags=re.IGNORECASE).strip(' ?.')
+            return True, entity
+    return False, None
+
+
 def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger) -> dict[str, Any]:
     """
     Executes CALL 1: LLM Question Analysis + Retrieval Strategy.
@@ -83,8 +110,27 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
 
         # Context-aware adjustments based on question content
         q_lower = state.question.lower()
+        is_broad, broad_entity = detect_broad_overview_question(state.question)
         is_comparison = state.intent == "comparison" or "compare" in q_lower or "versus" in q_lower or " vs " in q_lower or "difference" in q_lower
-        if is_comparison:
+
+        if is_broad:
+            state.intent = "broad_overview"
+            target_lower = (broad_entity or "").lower()
+            if "ai" in target_lower or "artificial intelligence" in target_lower or "artificial" in target_lower:
+                state.entities = ["Artificial Intelligence"]
+                state.attributes = ["history", "approaches", "areas"]
+                state.likely_headings = ["Brief history of AI", "Approaches to AI", "AI areas"]
+                state.keywords = ["Artificial Intelligence", "history of AI", "approaches to AI", "AI areas"]
+                state.strategy = "heading_then_keyword_then_page"
+            else:
+                ent_clean = _clean_term(broad_entity, DISALLOWED_STANDALONE_WORDS) if broad_entity else "overview"
+                state.entities = [ent_clean]
+                state.attributes = ["overview", "major topics"]
+                state.likely_headings = [f"Introduction to {ent_clean}", ent_clean]
+                state.keywords = [ent_clean, "overview"]
+                state.strategy = "heading_then_keyword_then_page"
+
+        elif is_comparison:
             state.intent = "comparison"
             if len(state.entities) < 2 or any(e.lower() in DISALLOWED_STANDALONE_WORDS or "difference" in e.lower() for e in state.entities):
                 q_clean = re.sub(r'^(what\s+is\s+the\s+difference\s+between|difference\s+between|compare|contrast|comparison\s+of)\s+', '', state.question, flags=re.IGNORECASE).strip()
@@ -176,15 +222,31 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
     except Exception as exc:
         # Robust deterministic fallback populating ALL AgentState fields
         q_lower = state.question.lower()
-        
+        is_broad, broad_entity = detect_broad_overview_question(state.question)
         is_comparison = "compare" in q_lower or "versus" in q_lower or " vs " in q_lower or "difference" in q_lower
         is_temporal = any(w in q_lower for w in ["latest", "current", "update", "new", "revised", "amended"])
         
-        state.intent = "comparison" if is_comparison else ("policy_temporal" if is_temporal else "factual")
-        state.temporal_requirement = "latest" if is_temporal else None
-        state.strategy = "keyword_then_page"
+        if is_broad:
+            state.intent = "broad_overview"
+            state.temporal_requirement = None
+            state.strategy = "heading_then_keyword_then_page"
+            target_lower = (broad_entity or "").lower()
+            if "ai" in target_lower or "artificial intelligence" in target_lower or "artificial" in target_lower:
+                state.entities = ["Artificial Intelligence"]
+                state.attributes = ["history", "approaches", "areas"]
+                state.likely_headings = ["Brief history of AI", "Approaches to AI", "AI areas"]
+                state.keywords = ["Artificial Intelligence", "history of AI", "approaches to AI", "AI areas"]
+            else:
+                ent_clean = re.sub(r'^[^\w]+|[^\w]+$', '', broad_entity.strip()) if broad_entity else "overview"
+                state.entities = [ent_clean]
+                state.attributes = ["overview", "major topics"]
+                state.likely_headings = [f"Introduction to {ent_clean}", ent_clean]
+                state.keywords = [ent_clean, "overview"]
 
-        if is_comparison:
+        elif is_comparison:
+            state.intent = "comparison"
+            state.temporal_requirement = "latest" if is_temporal else None
+            state.strategy = "keyword_then_page"
             q_clean = re.sub(r'^(compare|contrast|comparison\s+of)\s+', '', state.question, flags=re.IGNORECASE).strip()
             if " terms of " in q_clean.lower():
                 parts = re.split(r'\bterms\s+of\b', q_clean, flags=re.IGNORECASE)
@@ -218,6 +280,9 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
 
             state.keywords = state.entities + state.attributes
         else:
+            state.intent = "policy_temporal" if is_temporal else "factual"
+            state.temporal_requirement = "latest" if is_temporal else None
+            state.strategy = "keyword_then_page"
             # Targeted semantic fallback for common conceptual questions
             if "intelligent agent" in q_lower:
                 state.entities = ["intelligent agent"]

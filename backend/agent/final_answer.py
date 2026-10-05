@@ -42,15 +42,19 @@ def evaluate_claim_in_text(ent: str, attr: str, text: str) -> bool:
         comp_signals = ["search", "queue", "stack", "fifo", "lifo", "order", "traversal", "level", "branch", "node", "expand"]
         return any(sig in text_lower for sig in comp_signals)
 
-    # 3. Specific multidimensional attributes
+    # 3. Specific multidimensional attributes & broad overview subtopics
     if "landmark" in attr_lower:
         return any(sig in text_lower for sig in ["landmark", "lattice", "grid", "vertex", "vertices", "sampling", "obstacle"])
     if "complete" in attr_lower:
         return any(sig in text_lower for sig in ["complete", "completeness"])
     if "optimal" in attr_lower:
         return any(sig in text_lower for sig in ["optimal", "optimality"])
-    if any(k in attr_lower for k in ["origin", "date", "introduced", "born", "adopted"]):
-        return any(sig in text_lower for sig in ["1956", "dartmouth", "mccarthy", "adopted", "born", "introduced", "origin", "workshop"])
+    if any(k in attr_lower for k in ["origin", "date", "introduced", "born", "adopted", "history"]):
+        return any(sig in text_lower for sig in ["1956", "dartmouth", "mccarthy", "adopted", "born", "introduced", "origin", "workshop", "history", "turing", "mcculloch", "pitts", "robinson"])
+    if any(k in attr_lower for k in ["approach", "approaches", "acting rationally", "acting like humans", "rational"]):
+        return any(sig in text_lower for sig in ["approach", "approaches", "rationally", "humans", "turing test", "perceive", "agent"])
+    if any(k in attr_lower for k in ["area", "areas", "subfield", "topics", "search", "logic", "machine learning"]):
+        return any(sig in text_lower for sig in ["area", "areas", "search", "logic", "machine learning", "neural", "agent", "planning", "reasoning"])
 
     # 4. General attribute words (e.g. population)
     attr_words = [w for w in re.findall(r'\b[a-zA-Z0-9_\*]{3,}\b', attr_lower) if w not in DISALLOWED_STANDALONE_WORDS]

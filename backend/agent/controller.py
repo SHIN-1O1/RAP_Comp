@@ -44,7 +44,7 @@ class AgentController:
             # ==========================================
             # STEP A: Heading Navigation (if indicated)
             # ==========================================
-            if state.likely_headings and budget.remaining >= 2 and state.strategy == "heading_then_keyword_then_page":
+            if (state.likely_headings or state.intent == "broad_overview") and budget.remaining >= 2 and (state.strategy.startswith("heading") or state.intent == "broad_overview"):
                 headings_result = execute_tool(
                     "list_headings",
                     {"doc_id": doc_id},
@@ -80,6 +80,10 @@ class AgentController:
 
             # Perform keyword searches as budget permits (reserving at least 1-2 calls for page extractions)
             for kw in search_queue:
+                # If this is a broad overview and candidate pages already identify representative sections,
+                # preserve remaining calls for page content extractions
+                if state.intent == "broad_overview" and len(state.candidate_pages) >= 3:
+                    break
                 # Stop searching if remaining budget is too low (reserving calls for get_page)
                 if budget.remaining <= 1 or (budget.remaining <= 2 and len(state.candidate_pages) >= 2):
                     break
@@ -150,12 +154,16 @@ class AgentController:
                 # Update state coverage matrix based on page_text content
                 self._update_matrix_coverage(state, page_text)
 
-                # Check if all required claims are established
-                if state.coverage and len(state.get_unresolved_claims()) == 0:
+                # Check if all required claims are established (except for broad overview where multi-section coverage is desired)
+                if state.intent != "broad_overview" and state.coverage and len(state.get_unresolved_claims()) == 0:
                     break
 
                 # Early stopping check for simple factual queries if sufficient evidence gathered
                 if state.intent == "factual" and not is_temporal and len(state.evidence) >= 2:
+                    break
+
+                # For broad overview, bounded to 4 representative pages
+                if state.intent == "broad_overview" and len(state.evidence) >= 4:
                     break
 
             if budget.remaining <= 0:

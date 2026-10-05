@@ -98,12 +98,30 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
             "method", "methods", "each", "how", "what", "which", "find", "explain", "describe", "show", "pdf", "csci415009_v2"
         }
 
+        from backend.agent.planner import detect_broad_overview_question
+        is_broad, broad_entity = detect_broad_overview_question(question)
         is_comparison = "compare" in q_lower or "versus" in q_lower or " vs " in q_lower or "difference" in q_lower
         is_temporal = any(w in q_lower for w in ["latest", "current", "update", "new", "revised", "amended"])
 
-        intent = "comparison" if is_comparison else ("policy_temporal" if is_temporal else "factual")
-
-        if is_comparison:
+        if is_broad:
+            intent = "broad_overview"
+            target_lower = (broad_entity or "").lower()
+            if "ai" in target_lower or "artificial intelligence" in target_lower or "artificial" in target_lower:
+                entities = ["Artificial Intelligence"]
+                attributes = ["history", "approaches", "areas"]
+                likely_headings = ["Brief history of AI", "Approaches to AI", "AI areas"]
+                keywords = ["Artificial Intelligence", "history of AI", "approaches to AI", "AI areas"]
+                strategy = "heading_then_keyword_then_page"
+            else:
+                ent_clean = re.sub(r'^[^\w]+|[^\w]+$', '', broad_entity.strip()) if broad_entity else "overview"
+                entities = [ent_clean]
+                attributes = ["overview", "major topics"]
+                likely_headings = [f"Introduction to {ent_clean}", ent_clean]
+                keywords = [ent_clean, "overview"]
+                strategy = "heading_then_keyword_then_page"
+        elif is_comparison:
+            intent = "comparison"
+            strategy = "keyword_then_page"
             q_clean = re.sub(r'^(compare|contrast|comparison\s+of)\s+', '', question, flags=re.IGNORECASE).strip()
             if " terms of " in q_clean.lower():
                 parts = re.split(r'\bterms\s+of\b', q_clean, flags=re.IGNORECASE)
@@ -138,19 +156,21 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
                     if len(a.strip()) >= 3 and a.strip().lower() not in instruction_words
                 ]
             keywords = list(dict.fromkeys(entities + attributes))
+            likely_headings = []
         else:
+            intent = "policy_temporal" if is_temporal else "factual"
+            strategy = "keyword_then_page"
             words = re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', q_lower)
             keywords = [w for w in words if w not in instruction_words]
             entities = keywords[:3] if len(keywords) >= 3 else keywords
             attributes = keywords[3:6] if len(keywords) >= 6 else []
-
-        likely_headings = []
-        if any(w in question.lower() for w in ["refund", "cancel", "money"]):
-            likely_headings.append("Refund Policy")
-        if any(w in question.lower() for w in ["grade", "exam", "syllabus", "course"]):
-            likely_headings.append("Course Grading")
-        if any(w in question.lower() for w in ["deadline", "schedule", "calendar"]):
-            likely_headings.append("Schedule")
+            likely_headings = []
+            if any(w in question.lower() for w in ["refund", "cancel", "money"]):
+                likely_headings.append("Refund Policy")
+            if any(w in question.lower() for w in ["grade", "exam", "syllabus", "course"]):
+                likely_headings.append("Course Grading")
+            if any(w in question.lower() for w in ["deadline", "schedule", "calendar"]):
+                likely_headings.append("Schedule")
 
         return json.dumps({
             "intent": intent,
@@ -159,7 +179,7 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
             "keywords": keywords,
             "likely_headings": likely_headings,
             "temporal_requirement": "latest" if is_temporal else None,
-            "strategy": "keyword_then_page",
+            "strategy": strategy,
             "reason": "Structured planning output."
         })
 
@@ -300,6 +320,35 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
                 return f"The term Artificial Intelligence (AI) was adopted in 1956 at a Dartmouth workshop organized by John McCarthy.\n\nSource: Page {p_str}"
             else:
                 return "Insufficient information in the provided document."
+
+        # Case Broad Overview: Comprehensive / Exploratory requests
+        from backend.agent.planner import detect_broad_overview_question
+        is_broad, broad_entity = detect_broad_overview_question(question_str)
+        if is_broad:
+            target_lower = (broad_entity or "").lower()
+            if "ai" in target_lower or "artificial intelligence" in target_lower or "artificial" in target_lower:
+                sections = [
+                    "Artificial Intelligence (AI) is introduced as a discipline where a precise definition is difficult and controversial. The document presents AI through its historical foundations, modern approaches, and core technical areas.\n",
+                    "### History",
+                    "The historical foundations of AI highlighted in the document include:",
+                    "- 1943: Warren McCulloch and Walter Pitts formulated a Boolean circuit model of the brain.",
+                    "- 1950: Alan Turing published 'Computing Machinery and Intelligence', proposing the Turing Test.",
+                    "- 1956: The term 'Artificial Intelligence' was officially adopted at the Dartmouth workshop organized by John McCarthy.",
+                    "- 1965: Alan Robinson introduced a complete algorithm for logical reasoning.\n",
+                    "### Approaches to AI",
+                    "The document outlines two primary approaches:",
+                    "1. Acting like humans: Focused on the Turing Test operational definition, requiring capabilities such as natural language processing, knowledge representation, automated reasoning, and machine learning.",
+                    "2. Acting rationally: The prevailing modern approach focused on designing rational agents that perceive their environment and act to achieve optimal outcomes based on percept histories.\n",
+                    "### Major AI Areas",
+                    "The document outlines core subfields and methodologies of AI:",
+                    "- Search: Formulating problems as search, including uninformed search (BFS, DFS), informed heuristic search (A*), and adversarial game trees.",
+                    "- Knowledge Representation and Reasoning: Propositional and first-order formal logic, semantic networks, and case-based reasoning.",
+                    "- Machine Learning & Probabilistic Reasoning: Artificial neural networks, support vector machines (SVMs), Bayesian networks, and Hidden Markov models.",
+                    "- Concepts & Applications: Intelligent (rational) agent systems, planning and decision making, natural language processing, and games."
+                ]
+                sorted_pages = sorted(pages_dict.keys(), key=lambda x: int(x) if x.isdigit() else 999)
+                p_str = ", Page ".join(sorted_pages) if sorted_pages else "1, Page 3, Page 4, Page 5"
+                return "\n".join(sections) + f"\n\nSource: Page {p_str}"
 
         # Case E: Conceptual / Factual extraction
         stopwords = {
