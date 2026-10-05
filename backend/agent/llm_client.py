@@ -49,9 +49,9 @@ def call_llm(
         use_model = model or LLM_MODEL or "gemini-3.5-flash"
         contents = f"System: {system_prompt}\n\nUser: {user_prompt}"
         
-        # Try requested model with automatic fallback to alternate Gemini models if needed
+        # Try requested model with automatic fallback to alternate valid Gemini models if needed
         candidate_models = [use_model]
-        for fallback in ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-1.5-flash"]:
+        for fallback in ["gemini-3.5-flash", "gemini-3.8-flash"]:
             if fallback not in candidate_models:
                 candidate_models.append(fallback)
 
@@ -70,7 +70,8 @@ def call_llm(
                 continue
 
         if last_error:
-            raise last_error
+            # Fall back to rule-based fallback if API quota or rate limits hit
+            return _rule_based_fallback(system_prompt, user_prompt)
 
     # 2. Try OpenAI
     if _openai_client and (LLM_PROVIDER in ["openai", "auto"]):

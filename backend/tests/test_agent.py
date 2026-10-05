@@ -32,7 +32,7 @@ def test_agent_missing_information_returns_insufficient():
     result = controller.run(doc_id=doc_id, question="What is the Martian quantum teleportation frequency protocol?")
 
     assert result["calls_used"] <= 6
-    assert "Insufficient information." in result["final_answer"]
+    assert "insufficient information" in result["final_answer"].lower()
 
 
 def test_agent_hard_budget_boundary():

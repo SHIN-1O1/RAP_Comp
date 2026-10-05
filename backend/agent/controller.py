@@ -83,7 +83,10 @@ class AgentController:
                     ordered_candidates.append(p)
 
             # If question involves supersession or latest updates, reverse or prioritize later pages
-            if state.temporal_requirement in ["latest", "supersedes"]:
+            is_temporal = state.temporal_requirement in ["latest", "supersedes"] or \
+                          any(w in question.lower() for w in ["current", "latest", "updated", "new", "amended", "revised", "present", "now"])
+
+            if is_temporal:
                 ordered_candidates.sort(reverse=True)
 
             # Step C: Retrieve Pages within remaining budget
@@ -114,7 +117,7 @@ class AgentController:
                 )
 
                 # Early stopping check for simple factual queries if key terms are found
-                if state.intent == "factual" and not state.temporal_requirement and len(state.evidence) >= 2:
+                if state.intent == "factual" and not is_temporal and len(state.evidence) >= 2:
                     break
 
         except BudgetExceededError:

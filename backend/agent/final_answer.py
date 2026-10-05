@@ -23,7 +23,7 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
 
     # If no evidence was retrieved at all, return Insufficient information immediately
     if not state.evidence:
-        answer = "Insufficient information.\n\nNo relevant document evidence was retrieved within the call budget."
+        answer = "ANSWER:\nInsufficient information in the document.\n\nEVIDENCE:\n- None retrieved within call budget.\n\nSTATUS:\nINSUFFICIENT INFORMATION"
         state.final_answer = answer
         state.final_answer_generated = True
         state.status = "COMPLETED"
