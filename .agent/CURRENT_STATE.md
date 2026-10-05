@@ -1,7 +1,8 @@
 # Current State
 
 ## Working
-- **Core Architecture**: Planning LLM (Coverage Matrix) + Deterministic Adaptive Retrieval (Coverage-Driven Page Scoring) + Final Answer LLM Call.
+- **Local Lexical Chunk Store (`backend/retrieval/`)**: Ingestion-time chunking (550 words, 75 words overlap, page boundary preservation, prompt injection detection flag). Pure Python BM25 / TF-IDF scoring with English root stemming, phrase matching, and entity × attribute co-occurrence bonuses. Maps matching chunks directly to ranked candidate pages without embeddings, vector databases, or external frameworks.
+- **Core Architecture**: Planning LLM (Coverage Matrix) + Local Lexical Chunk Discovery + Deterministic Adaptive Retrieval (Coverage-Driven Page Scoring) + Authoritative Page Fetch (`get_page()`) + Final Answer LLM Call.
 - **Hard 6-Call Budget**: All pre-final LLM and document tool calls consume a unified `CallBudget`. Attempting a 7th pre-final call strictly raises `BudgetExceededError` in Python code.
 - **Single API Request per LLM Call**: Multi-model retries removed; fallback to local rule engine without secondary API calls.
 - **Full Keyword Evaluation & Component-Term Fallback**: Multi-word planner entities (e.g. `"intelligent agent"`) that yield 0 exact keyword matches fall back to querying unsearched individual component terms, preventing retrieval misses.
@@ -12,21 +13,24 @@
 - **Explicit LLM Runtime Observability**: Every LLM call records a structured `LLMCallMetadata` tracking `provider`, `model`, `mode` (`"api"` vs `"rule_based_fallback"`), `status`, `duration_ms`, `error`, and `reason`.
 - **Zero Secret Leakage**: API keys and auth headers are completely scrubbed; errors are categorized safely (e.g. `quota / rate limit exceeded (429)`).
 - **Frontend Call Trace & UI**: React SPA displays prominent runtime badges in `CallTrace` indicating whether Gemini API or Local Fallback generated the result, along with real-time budget tracking (`BudgetGauge`), grounded citations, and expandable evidence cards.
-- **Automated Test Matrix**: 100% passing across unit, scenario, agent boundary, and observability suites.
+- **Automated Test Matrix**: 100% passing (34/34 tests passing across all 7 test suites).
 - **Pushed to GitHub**: Repository synced at `https://github.com/SHIN-1O1/RAP_Comp`.
 
 ## In Progress
-- Complete. Handover documentation prepared for subsequent agent handoff.
+- Complete. Local chunk retrieval layer fully integrated, tested, and documented.
 
 ## Broken
 - None.
 
 ## Last Tested
-- `backend/tests/test_llm_observability.py`: 8 passed.
-- `backend/tests/test_agent.py`: 6 passed.
-- `backend/tests/test_scenarios.py`: 3 passed.
-- Targeted validation suite verified on `CSCI415009_V2.pdf`.
-- GitHub commit push verified (`bb07994`).
+- Full test suite: **34/34 tests passed in 224s (100% success rate)**.
+  - `backend/tests/test_budget.py`: 4 passed
+  - `backend/tests/test_document_tools.py`: 4 passed
+  - `backend/tests/test_agent.py`: 4 passed
+  - `backend/tests/test_scenarios.py`: 3 passed
+  - `backend/tests/test_llm_observability.py`: 4 passed
+  - `backend/tests/test_api.py`: 3 passed
+  - `backend/tests/test_retrieval.py`: 12 passed
 
 ## Next
-- Handover to incoming agent / live evaluation on unseen PDFs.
+- Live evaluation and demonstration on unseen PDFs.

@@ -12,7 +12,8 @@ Key highlights:
 - **No Hallucinations**: Grounded purely on retrieved document text. If evidence is missing, it explicitly answers `"Insufficient information in the provided document."`
 - **Zero Agent Framework Bloat**: Pure Python + FastAPI backend, React/Vite frontend. No LangChain, CrewAI, AutoGen, or LangGraph.
 - **Strict Hard Budget**: Exactly 6 pre-final calls maximum (LLM planning + 4 prescribed document tools) enforced programmatically at the code level, plus exactly 1 separate final answer call.
-- **Zero RAG / Embeddings / Vector Databases**: No pre-reading, vector indexes, or background full-text caching.
+- **Local Lexical Chunk Store**: Ingestion-time chunking with BM25 / TF-IDF lexical candidate discovery. **Zero embeddings, zero vector databases**.
+- **Authoritative Page Grounding**: `get_page()` remains the authoritative evidence retrieval tool. Chunks only assist candidate discovery.
 - **Resilient Dual Engine**: Calls Gemini or OpenAI API when configured; on rate limits (HTTP 429), timeouts, or missing keys, instantly falls back to a deterministic local rule-based engine with **zero retries** and **zero user-facing failure**.
 - **Full Runtime Observability**: Every step records whether an API or local fallback was used, the latency, model name, and sanitized error categories without leaking credentials.
 
@@ -29,7 +30,7 @@ Any modification must respect these non-negotiable rules:
 | **Max 1 Final Answer Call** | Exactly one final answer synthesis call is permitted outside the pre-final budget (`final_answer_generated = True`). |
 | **No LLM Retries** | When an LLM API call fails (e.g. 429 quota or timeout), switch to the deterministic fallback immediately. **Never attempt a second API call for the same step**, as retries consume time and risk quota exhaustion. |
 | **Only 4 Prescribed Tools** | `list_documents()`, `list_headings(doc_id)`, `search_keyword(doc_id, keyword)`, and `get_page(doc_id, page_number)`. No raw PDF reading, external tools, or custom helpers. |
-| **No RAG / Vector DBs** | No embeddings, FAISS, Chroma, LangChain indexers, or hidden semantic caches. |
+| **No Embeddings / Vector DBs** | No embeddings, FAISS, Chroma, Pinecone, LangChain indexers, or hidden semantic caches. Lexical retrieval is pure Python mathematics (BM25 + stemming). |
 | **Untrusted Document Context** | Document text is untrusted user data. Prompts enclose document pages in `<document_context>` tags and enforce prompt injection immunity. |
 | **No Secret Leakage** | `GEMINI_API_KEY`, `OPENAI_API_KEY`, and HTTP headers must never appear in log records, call trace payloads, terminal prints, or markdown artifacts. |
 
@@ -53,6 +54,14 @@ Any modification must respect these non-negotiable rules:
                                     |
                                     v
                         +-------------------------+
+                        | LOCAL LEXICAL RETRIEVAL |
+                        | (Zero LLM / Zero Vectors|
+                        | BM25 + Stemmed Matching |
+                        | Chunk -> Candidate Pages|
+                        +-----------+-------------+
+                                    |
+                                    v
+                        +-------------------------+
                         | GLOBAL BUDGET MANAGER   |
                         | MAX = 6 PRE-FINAL CALLS |
                         +-----------+-------------+
@@ -65,7 +74,7 @@ Any modification must respect these non-negotiable rules:
                         | Step A: list_headings   |
                         | Step B: search_keyword  |
                         |         (component term)|
-                        | Step C: get_page        |
+                        | Step C: get_page (rank) |
                         | Step D: Relevance Gate  |
                         +-----------+-------------+
                                     |
@@ -112,10 +121,10 @@ RAP_Comp/
 │   ├── ARCHITECTURE.md        <- System architecture & call budget flow
 │   ├── CONSTRAINTS.md         <- Hard rules and forbidden patterns
 │   ├── CURRENT_STATE.md       <- Real-time working state & test status
-│   ├── DECISIONS.md           <- Architectural Decision Records (DEC-001 to DEC-012)
+│   ├── DECISIONS.md           <- Architectural Decision Records (DEC-001 to DEC-013)
 │   ├── PROJECT_BRAIN.md       <- Active modules, principles, and edge case strategies
 │   ├── SESSION_LOG.md         <- Chronological development log
-│   ├── TEST_STATUS.md         <- Comprehensive test verification matrix
+│   ├── TEST_STATUS.md         <- Comprehensive test verification matrix (34/34 passing)
 │   ├── TODO.md                <- Completed items and operational runbook
 │   └── HANDOVER.md            <- Mirror of this handover document
 ├── backend/
@@ -128,6 +137,11 @@ RAP_Comp/
 │   │   ├── planner.py         <- Question analysis, intent classification, broad overview detection
 │   │   ├── prompts.py         <- System & user prompts for planning and final synthesis
 │   │   └── state.py           <- AgentState, EvidenceStore, and CoverageMatrix dataclasses
+│   ├── retrieval/             <- Local Lexical Chunk Retrieval (Zero Vectors / Zero Embeddings)
+│   │   ├── __init__.py        <- Retrieval module exports
+│   │   ├── chunker.py         <- Deterministic sliding word-window chunking (550w, 75w overlap, provenance)
+│   │   ├── chunk_store.py     <- Local JSON chunk store scoped by doc_id & SHA256 content hash
+│   │   └── lexical_retriever.py <- Pure Python BM25 / TF-IDF scoring with English root stemming
 │   ├── tools/
 │   │   ├── document_tools.py  <- 4 prescribed tools (list_documents, list_headings, search_keyword, get_page)
 │   │   └── tool_wrapper.py    <- ToolWrapper: wraps tools to strictly consume budget prior to execution
@@ -136,7 +150,8 @@ RAP_Comp/
 │   │   ├── test_api.py        <- FastAPI endpoint tests (/api/ask, /api/documents)
 │   │   ├── test_budget.py     <- Strict 6-call max and Call 7 exception tests
 │   │   ├── test_document_tools.py <- Document tool unit tests
-│   │   ├── test_llm_observability.py <- 8 tests verifying API vs fallback and secret safety
+│   │   ├── test_llm_observability.py <- 4 tests verifying API vs fallback and secret safety
+│   │   ├── test_retrieval.py  <- 12 tests for chunking, BM25, provenance, isolation, and injection
 │   │   └── test_scenarios.py  <- Multi-page, contradiction, comparison, and injection tests
 │   ├── config.py              <- Environment variables, dynamic paths, and provider config
 │   └── main.py                <- FastAPI app, static frontend mount, and REST endpoints
@@ -152,7 +167,8 @@ RAP_Comp/
 │   │   └── types.ts           <- TypeScript interfaces (AskResponse, LLMCallMetadata, etc.)
 │   └── dist/                  <- Compiled production bundle (served automatically by FastAPI)
 ├── data/
-│   └── documents/             <- Active PDFs (e.g. CSCI415009_V2.pdf)
+│   ├── documents/             <- Active PDFs (e.g. CSCI415009_V2.pdf)
+│   └── chunks/                <- Local JSON chunk files scoped by doc_id
 ├── requirements.txt           <- Python dependencies (fastapi, uvicorn, pypdf, google-genai, etc.)
 ├── README.md                  <- User-facing project documentation
 ├── MEMO.md                    <- Architectural memo & engineering justification
@@ -167,15 +183,17 @@ The controller (`backend/agent/controller.py`) selects deterministic execution p
 
 ### A. Factual & Conceptual Queries (e.g. *"What is an intelligent agent?"*)
 1. Planner classifies `intent = "factual"`, extracting entities `["intelligent agent"]` and attributes `["definition"]`.
-2. Stopwords are filtered from keywords.
-3. Component-term fallback: If `"intelligent agent"` returns 0 matches in exact search, the controller queries `"intelligent"` and `"agent"` separately.
-4. Definition gate: Formal conceptual definitions (Page 4: *"an agent is an entity that perceives and acts, or a function from percept histories to actions"*) are prioritized over casual historical mentions (Page 1).
+2. Local chunk retriever executes BM25 search with English root stemming, mapping chunks to candidate pages.
+3. Stopwords are filtered from keywords.
+4. Component-term fallback: If `"intelligent agent"` returns 0 matches in exact search, the controller queries `"intelligent"` and `"agent"` separately.
+5. Definition gate: Formal conceptual definitions (Page 4: *"an agent is an entity that perceives and acts, or a function from percept histories to actions"*) are prioritized over casual historical mentions (Page 1).
 
 ### B. Multi-Entity Comparison Queries (e.g. *"What is the difference between BFS and DFS?"*)
 1. Planner extracts entities `["BFS", "DFS"]` and attributes `["definition", "differences"]`.
 2. Controller initializes coverage matrix rows for both entities.
-3. Both entities are retrieved and evaluated; candidate page ranking ensures both entities receive evidence.
-4. Final answer synthesizes both sides completely, avoiding premature truncation.
+3. Local chunk retriever identifies candidate pages covering both entities and attributes.
+4. Both entities are retrieved and evaluated; candidate page ranking ensures both entities receive evidence.
+5. Final answer synthesizes both sides completely, avoiding premature truncation.
 
 ### C. Broad Overview Queries (e.g. *"Give me a comprehensive overview of artificial intelligence"*)
 1. `detect_broad_overview_question()` in `planner.py` matches broad queries via regex.
@@ -244,29 +262,20 @@ npm run dev    # For live hot-reload development on :5173
 npm run build  # Rebuilds frontend/dist (served by backend on :8000)
 ```
 
-### D. Running Tests
+### D. Running Full Test Matrix (34 Tests)
 ```powershell
-# Run the LLM observability test suite (8 tests)
-py -3.14 -m pytest backend/tests/test_llm_observability.py -v
-
-# Run the core agent tests
-py -3.14 -m pytest backend/tests/test_agent.py -v
-
-# Run the scenario validation suite (multi-page, supersession, injection)
-py -3.14 -m pytest backend/tests/test_scenarios.py -v
-
-# Run the budget boundary tests
-py -3.14 -m pytest backend/tests/test_budget.py -v
+# Run the complete test suite (34 tests across 7 test files)
+py -3.14 -m pytest backend/tests/ -v
 ```
 
 ---
 
 ## 8. Common Pitfalls & How to Avoid Them
 
-1. **Do NOT add RAG, embeddings, or vector databases**: The competition rules explicitly ban them. Keep retrieval strictly within the 4 prescribed tools.
+1. **Do NOT add embeddings or vector databases**: The competition rules explicitly ban them. Chunk retrieval must remain pure Python BM25 / lexical scoring.
 2. **Do NOT add LLM retries**: Retries waste budget and trigger timeout/quota penalties. Always fall back immediately.
 3. **Do NOT exceed 6 pre-final calls**: The `CallBudget` will raise `BudgetExceededError`. Plan tool calls so the total pre-final count never exceeds 6.
-4. **Be cautious with broad overview queries**: Broad overview queries need multi-page reading. Do not waste calls on multiple keyword queries; rely on heading candidate pages `[1, 3, 4, 5]` and fetch them.
+4. **Authoritative page evidence**: Never substitute chunk text directly for `get_page()`. Chunks are only for candidate discovery. Full pages must be fetched via `get_page()`.
 5. **Never leak secrets**: If adding new error handling, use `sanitize_error_message()` from `backend/agent/llm_client.py`.
 6. **Always rebuild frontend after UI changes**: When modifying `frontend/src/`, run `npm run build` so that the static distribution in `frontend/dist/` is updated for the FastAPI server.
 
@@ -275,5 +284,5 @@ py -3.14 -m pytest backend/tests/test_budget.py -v
 ## 9. Contacts & Repository
 
 - **GitHub Repository**: `https://github.com/SHIN-1O1/RAP_Comp`
-- **Branch**: `master`
+- **Branch**: `master` / `main`
 - **Owner**: SHIN-1O1

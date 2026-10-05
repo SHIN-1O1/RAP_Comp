@@ -12,9 +12,11 @@
 This memo provides the architectural design, engineering trade-offs, and operational justifications for **RAP_Comp**, an autonomous document question-answering agent designed to operate under **hard programmatic resource constraints**:
 - **Strict Budget Ceiling**: Maximum of 6 pre-final calls (LLM planning + document tools combined) enforced at the code level, plus exactly 1 separate final answer call.
 - **Zero Hallucination Tolerance**: Answers are grounded strictly on retrieved document text. If evidence is missing, contradictory, or out-of-scope, the agent explicitly returns `"Insufficient information in the provided document."`
-- **Zero Vector / Zero RAG**: No vector stores, embeddings, background indexing, or full-text caching. Document access is restricted entirely to 4 prescribed tools (`list_documents`, `list_headings`, `search_keyword`, `get_page`).
+- **Local Lexical Chunk Store**: Deterministic document chunking and BM25 / TF-IDF scoring in pure Python for candidate page discovery. Zero embeddings, zero vector databases, zero external agent frameworks.
+- **Authoritative Page Grounding**: `get_page()` remains the authoritative evidence retrieval tool. Chunks assist candidate discovery without dumping raw text into the LLM context.
 - **Resilient Dual Engine**: Integrates external frontier LLMs (Gemini / OpenAI) with an immediate, deterministic local rule-based fallback on API failure or quota exhaustion (HTTP 429), with **zero retries** and **zero secret leakage**.
 - **Complete Runtime Observability**: Every execution logs detailed step-by-step metadata, runtime modes (`api` vs `rule_based_fallback`), latencies, and sanitized error categories.
+
 
 ---
 
@@ -159,5 +161,7 @@ The system is validated by an automated test suite across all architectural boun
 | `backend/tests/test_agent.py` | Factual lookups, budget boundaries, missing information | **PASS** (4/4) |
 | `backend/tests/test_scenarios.py` | Multi-page, contradiction/supersession, prompt injection | **PASS** (3/3) |
 | `backend/tests/test_llm_observability.py` | API success, single-attempt fallback, secret safety | **PASS** (4/4) |
-| `backend/tests/test_api.py` | FastAPI endpoints, PDF upload, serialization | **PASS** (4/4) |
-| **Total Automated Tests** | **Full System Verification** | **100% PASS** |
+| `backend/tests/test_api.py` | FastAPI endpoints, PDF upload, serialization | **PASS** (3/3) |
+| `backend/tests/test_retrieval.py` | Chunking, BM25, provenance, isolation, injection defense | **PASS** (12/12) |
+| **Total Automated Tests** | **Full System Verification** | **34/34 PASS (100%)** |
+

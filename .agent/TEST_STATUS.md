@@ -25,6 +25,14 @@
 | LLM Observability: Single attempt failure fallback | PASS | Verified in `backend/tests/test_llm_observability.py` (0 retries) |
 | LLM Observability: Missing API key handling | PASS | Verified in `backend/tests/test_llm_observability.py` |
 | LLM Observability: Secret safety (no key leakage) | PASS | Verified in `backend/tests/test_llm_observability.py` |
+| PDF -> chunk generation & provenance | PASS | Verified in `backend/tests/test_retrieval.py` |
+| Section provenance mapping | PASS | Verified in `backend/tests/test_retrieval.py` |
+| Lexical retrieval & entity/attribute matching | PASS | Verified in `backend/tests/test_retrieval.py` |
+| Page aggregation & duplicate removal | PASS | Verified in `backend/tests/test_retrieval.py` |
+| Document isolation (Doc A vs Doc B) | PASS | Verified in `backend/tests/test_retrieval.py` |
+| Stale-index protection (SHA256 hash checks) | PASS | Verified in `backend/tests/test_retrieval.py` |
+| Prompt injection detection & behavioral immunity | PASS | Verified in `backend/tests/test_retrieval.py` |
 | FastAPI REST API endpoints | PASS | Verified in `backend/tests/test_api.py` |
 | Live unseen PDF compatibility | PASS | Supported via `/api/upload` and file dropzone |
 | Static frontend SPA build | PASS | Verified via `tsc -b && vite build` and root mount |
+| **Total Automated Regression Suite** | **34/34 PASS** | **100% PASS across 7 test suites** |

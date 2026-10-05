@@ -10,6 +10,13 @@ load_dotenv(PROJECT_ROOT / ".env")
 DATA_DIR = PROJECT_ROOT / "data"
 DOCS_DIR = DATA_DIR / "documents"
 DOCS_DIR.mkdir(parents=True, exist_ok=True)
+CHUNKS_DIR = DATA_DIR / "chunks"
+CHUNKS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Chunking Configuration
+CHUNK_SIZE = 550  # Target words per chunk
+CHUNK_OVERLAP = 75  # Target overlap words between chunks
+
 
 # LLM Configuration
 # Supports Gemini (default if GEMINI_API_KEY present) or OpenAI/compatible (if OPENAI_API_KEY present) or Mock

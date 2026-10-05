@@ -59,3 +59,9 @@
 - **Decision**: Instrument all LLM calls with `LLMCallMetadata` tracking `provider`, `model`, `mode` (`"api"` vs `"rule_based_fallback"`), `status`, `duration_ms`, `error`, and `reason`. Raw exception messages and API keys are strictly sanitized into generic categories (`rate_limit_exceeded`, `authentication_failed`, `timeout`, `network_error`). Expose this metadata in `AgentState`, `CallLogger`, `/api/ask` responses, and render dedicated status badges in the React frontend `CallTrace`.
 - **Reason**: Provides 100% transparency to operators and judges regarding whether Gemini/OpenAI API or local fallback generated the output, with zero risk of secret leakage.
 - **Status**: Accepted & Implemented
+
+## DEC-013: Local Lexical Chunk Store for Candidate Discovery & Coverage-Driven Retrieval
+- **Decision**: Implement a pure Python local lexical chunk store (`backend/retrieval/`) that chunks uploaded PDFs at ingestion time (550 words, 75 words overlap, page boundary preservation, prompt injection detection flag). The lexical retriever applies BM25 scoring with English root stemming and entity × attribute co-occurrence bonuses to map matching chunks directly to candidate pages. Authoritative evidence fetching remains strictly with the prescribed `get_page()` tool. Zero embeddings, zero vector databases, and zero external agent frameworks are used.
+- **Reason**: Significantly accelerates multi-entity comparison and complex claim discovery while preserving the 6-call budget, document isolation, and strict harness constraints.
+- **Status**: Accepted & Implemented
+

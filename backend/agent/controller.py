@@ -42,6 +42,38 @@ class AgentController:
             )
 
             # ==========================================
+            # LOCAL LEXICAL CHUNK RETRIEVAL (Zero LLM Calls, Zero Vector DBs)
+            # ==========================================
+            try:
+                from backend.retrieval.chunk_store import get_or_build_chunk_store
+                from backend.retrieval.lexical_retriever import LexicalRetriever
+
+                chunk_store = get_or_build_chunk_store(doc_id)
+                retriever = LexicalRetriever(chunk_store)
+                chunk_results = retriever.search_chunks(
+                    query_terms=state.keywords,
+                    entities=state.entities,
+                    attributes=state.attributes,
+                    top_k=20,
+                )
+                candidate_pages_meta = retriever.aggregate_to_candidate_pages(chunk_results)
+
+                for c_meta in candidate_pages_meta:
+                    p_num = c_meta["page"]
+                    if p_num not in state.candidate_pages:
+                        state.candidate_pages.append(p_num)
+                    if p_num not in state.page_keyword_map:
+                        state.page_keyword_map[p_num] = set()
+                    for term in c_meta.get("matched_terms", []):
+                        state.page_keyword_map[p_num].add(term)
+                    for ent in c_meta.get("covered_entities", []):
+                        state.page_keyword_map[p_num].add(f"entity:{ent}")
+                    for attr in c_meta.get("covered_attributes", []):
+                        state.page_keyword_map[p_num].add(f"attribute:{attr}")
+            except Exception:
+                pass
+
+            # ==========================================
             # STEP A: Heading Navigation (if indicated)
             # ==========================================
             if (state.likely_headings or state.intent == "broad_overview") and budget.remaining >= 2 and (state.strategy.startswith("heading") or state.intent == "broad_overview"):
@@ -77,6 +109,7 @@ class AgentController:
                 is_valid_len = (cleaned in {"ai", "a*"} or len(cleaned) >= 3)
                 if cleaned and is_valid_len and cleaned not in DISALLOWED_STANDALONE_WORDS and cleaned not in search_queue:
                     search_queue.append(cleaned)
+
 
             # Perform keyword searches as budget permits (reserving at least 1-2 calls for page extractions)
             for kw in search_queue:
@@ -158,13 +191,10 @@ class AgentController:
                 if state.intent != "broad_overview" and state.coverage and len(state.get_unresolved_claims()) == 0:
                     break
 
-                # Early stopping check for simple factual queries if sufficient evidence gathered
-                if state.intent == "factual" and not is_temporal and len(state.evidence) >= 2:
-                    break
-
                 # For broad overview, bounded to 4 representative pages
                 if state.intent == "broad_overview" and len(state.evidence) >= 4:
                     break
+
 
             if budget.remaining <= 0:
                 state.status = "BUDGET_EXHAUSTED"
@@ -191,8 +221,11 @@ class AgentController:
         # One separate final answer call
         # ==========================================
         final_answer = generate_final_answer(state, logger)
+        if state.status not in ["BUDGET_EXHAUSTED", "ERROR"]:
+            state.status = "SUCCESS"
 
         return {
+
             "question": state.question,
             "document_id": state.document_id,
             "status": state.status,
@@ -231,10 +264,20 @@ class AgentController:
 
             # Entity relevance bonus
             for kw in matched_kws:
-                if kw in unresolved_entities or any(kw in ent for ent in unresolved_entities):
-                    score += 5.0
-                if kw in unresolved_attributes or any(kw in attr for attr in unresolved_attributes):
-                    score += 3.0
+                kw_lower = kw.lower()
+                if kw_lower.startswith("entity:"):
+                    ent_tag = kw_lower[7:]
+                    if ent_tag in unresolved_entities or any(ent_tag in ent for ent in unresolved_entities):
+                        score += 6.0
+                elif kw_lower.startswith("attribute:"):
+                    attr_tag = kw_lower[10:]
+                    if attr_tag in unresolved_attributes or any(attr_tag in attr for attr in unresolved_attributes):
+                        score += 4.0
+                else:
+                    if kw_lower in unresolved_entities or any(kw_lower in ent for ent in unresolved_entities):
+                        score += 5.0
+                    if kw_lower in unresolved_attributes or any(kw_lower in attr for attr in unresolved_attributes):
+                        score += 3.0
 
             # Temporal weighting (later pages scored slightly higher when updated policy requested)
             if is_temporal:
@@ -243,6 +286,7 @@ class AgentController:
             if score > best_score:
                 best_score = score
                 best_page = page
+
 
         return best_page or (unretrieved[0] if unretrieved else None)
 

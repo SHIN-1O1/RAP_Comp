@@ -54,8 +54,16 @@ async def upload_document(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save uploaded PDF: {str(e)}")
 
+    # Build or refresh local chunk store for the uploaded document
+    try:
+        from backend.retrieval.chunk_store import get_or_build_chunk_store
+        get_or_build_chunk_store(file.filename, force_rebuild=True)
+    except Exception:
+        pass
+
     # Retrieve metadata using document tools
     all_docs = list_documents()
+
     for doc in all_docs:
         if doc["filename"] == file.filename or doc["doc_id"] == file.filename:
             return doc

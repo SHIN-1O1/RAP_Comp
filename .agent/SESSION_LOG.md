@@ -127,3 +127,17 @@
 - Agent Handover & Documentation Alignment:
   - Updated all 8 files in `.agent/` (`ARCHITECTURE.md`, `CONSTRAINTS.md`, `CURRENT_STATE.md`, `DECISIONS.md`, `PROJECT_BRAIN.md`, `SESSION_LOG.md`, `TEST_STATUS.md`, `TODO.md`).
   - Created comprehensive onboarding document `HANDOVER.md` in root directory and `.agent/HANDOVER.md`.
+
+---
+
+## 2026-10-05 15:10
+
+### Completed
+- Local Lexical Chunk Store & Retrieval Layer (DEC-013):
+  - Created `backend/retrieval/chunker.py`: deterministic sliding word-window chunking (550 words, 75 words overlap, page provenance, Unicode NFKD normalization, prompt injection detection flag).
+  - Created `backend/retrieval/chunk_store.py`: local JSON chunk storage scoped strictly by `doc_id` and SHA256 content hash with cross-document isolation and stale-index protection.
+  - Created `backend/retrieval/lexical_retriever.py`: pure Python BM25 / TF-IDF scoring with English root stemming, multi-word phrase matching, and entity × attribute co-occurrence bonuses.
+  - Integrated into `backend/main.py` (ingestion-time chunk building) and `backend/agent/controller.py` (candidate page discovery and coverage-driven page scoring).
+  - Created `backend/tests/test_retrieval.py` with 12 comprehensive unit and scenario tests.
+  - Verified full test regression suite: **34/34 tests passed in 224s (100% success rate)** across all 7 test files.
+
