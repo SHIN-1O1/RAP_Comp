@@ -67,11 +67,15 @@ class AgentController:
                             state.page_keyword_map[p_num].add("heading")
 
             # ==========================================
-            # STEP B: Keyword Search (Coverage-Driven)
+            # STEP B: Keyword Search (Coverage-Driven with Component Fallback)
             # ==========================================
-            # Assemble all useful keywords (entities first, then attributes, then remaining keywords)
             search_queue: list[str] = []
-            stopwords = {"compare", "versus", "terms", "whether", "each", "method", "how", "what", "which", "does", "difference"}
+            stopwords = {
+                "compare", "comparison", "comparing", "contrast", "terms", "whether", "each",
+                "method", "methods", "how", "what", "which", "does", "did", "have", "has", "had",
+                "the", "and", "for", "with", "about", "document", "tell", "explain", "describe",
+                "find", "show", "definition", "overview", "meaning"
+            }
             for item in state.entities + state.attributes + state.keywords:
                 cleaned = item.strip().lower()
                 if cleaned and len(cleaned) >= 3 and cleaned not in stopwords and cleaned not in search_queue:
@@ -79,7 +83,7 @@ class AgentController:
 
             # Perform keyword searches as budget permits (reserving at least 1-2 calls for page extractions)
             for kw in search_queue:
-                # Keep calls for get_page: stop searching if remaining <= 2 and we already have candidate pages
+                # Stop searching if remaining budget is too low (reserving calls for get_page)
                 if budget.remaining <= 1 or (budget.remaining <= 2 and len(state.candidate_pages) >= 2):
                     break
                 if kw in state.searched_keywords:
@@ -100,6 +104,19 @@ class AgentController:
                         if p_num not in state.page_keyword_map:
                             state.page_keyword_map[p_num] = set()
                         state.page_keyword_map[p_num].add(kw)
+                else:
+                    # Component term fallback: if multi-word phrase produced 0 pages, derive sub-terms
+                    words_in_kw = re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', kw)
+                    if len(words_in_kw) > 1:
+                        for w in words_in_kw:
+                            w_clean = w.lower().strip()
+                            if (
+                                w_clean not in stopwords
+                                and len(w_clean) >= 3
+                                and w_clean not in search_queue
+                                and w_clean not in state.searched_keywords
+                            ):
+                                search_queue.append(w_clean)
 
             # ==========================================
             # STEP C: Coverage-Driven Candidate Page Selection

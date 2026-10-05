@@ -199,22 +199,22 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
             evidence_part = cleaned.strip()
 
         # Parse pages and extract synthesized answer sentences
-        page_matches = re.findall(
-            r'(?:--- Page (\d+) ---|\[Page (\d+) Content\]:)\s*\n(.*?)(?=\n(?:--- Page |\n\[Page |\nEVIDENCE COVERAGE MATRIX:|$))',
-            evidence_part,
-            re.DOTALL
-        )
-        
+        page_chunks = re.split(r'(?:--- Page (\d+) ---|\[Page (\d+) Content\]:)', evidence_part)
         extracted_answers = []
         source_pages = []
 
-        for p1, p2, p_text in page_matches:
-            p_num = p1 or p2
-            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', p_text) if s.strip()]
+        idx = 1
+        while idx < len(page_chunks):
+            p_num = page_chunks[idx] or page_chunks[idx + 1]
+            p_text = page_chunks[idx + 2] if idx + 2 < len(page_chunks) else ""
+            idx += 3
+
+            p_text = p_text.split("EVIDENCE COVERAGE MATRIX:")[0]
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+|\n+', p_text) if s.strip()]
             for s in sentences:
                 s_lower = s.lower()
                 if any(qw in s_lower for qw in q_words):
-                    if s not in extracted_answers and len(s) >= 15:
+                    if s not in extracted_answers and len(s) >= 15 and not s.startswith("Chapter"):
                         extracted_answers.append(s)
                         if p_num and p_num not in source_pages:
                             source_pages.append(p_num)
