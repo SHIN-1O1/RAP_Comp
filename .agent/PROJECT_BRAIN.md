@@ -4,18 +4,18 @@
 Build the hackathon Agentic Document QA system.
 
 ## Architecture
-One planning LLM call + deterministic adaptive retrieval + one final answer LLM call.
+Code-governed asymmetric architecture: 1 Planning LLM Call (Question Analysis & Coverage Matrix) + Deterministic Python Adaptive Retrieval + 1 Final Answer LLM Call (Strict Evidence-Grounded Verification & Prompt Injection Defense).
 
-## Hard Constraint
-Maximum 6 TOTAL pre-final calls.
-LLM calls and document-tool calls share the same global budget.
-Final answer = one separate call.
+## Hard Constraints
+- Maximum 6 TOTAL pre-final calls (LLM calls and document-tool calls share the exact same global budget).
+- Exactly 1 separate final answer call.
+- No Call 7 (attempting call 7 raises `BudgetExceededError` at the code level).
 
 ## Forbidden
 - RAG
 - embeddings
 - vector DB
-- raw PDF access by the agent
+- raw PDF access outside 4 prescribed tools
 - hidden document cache / pre-reading
 - extra document tools
 - agent frameworks (LangChain, LangGraph, CrewAI, AutoGen)
@@ -25,14 +25,14 @@ LLM = reasoning.
 Code = control.
 
 ## Current Status
-Initializing project brain and workspace structure. Preparing Phase 1 (tool interface, budget, logger, wrapper).
+Fully implemented, tested (17/17 passing), documented (`MEMO.md`, `README.md`), and pushed to GitHub (`https://github.com/SHIN-1O1/RAP_Comp`).
 
 ## Active Task
-Phase 1: Foundation (CallBudget, CallLogger, DocumentTools, ToolWrapper, budget tests).
+Project maintenance & live demonstration readiness.
 
-## Known Issues
-- Windows cp1252 stdout requires utf-8 encoding for unicode characters.
-- Python executable with packages is `py -3.14`.
+## Known Issues & Mitigations
+- Scanned PDF images without embedded text layer (mitigation: on-demand OCR).
+- Free-tier API rate limits / 429 errors (mitigation: graceful fallback to deterministic rule engine).
 
 ## Next Action
-Implement `backend/agent/budget.py`, `backend/agent/logger.py`, `backend/tools/document_tools.py`, and `backend/tools/tool_wrapper.py`.
+Run live demonstration on unseen PDFs for judges.

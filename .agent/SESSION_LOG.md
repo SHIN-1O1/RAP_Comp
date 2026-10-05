@@ -26,20 +26,20 @@
 ### Tests
 - 8/8 unit tests passed.
 
-## 2026-10-05 10:56
+## 2026-10-05 11:24
 
 ### Completed
-- Phase 2 & 3: Agent Architecture & Verification:
-  - `backend/agent/state.py`: compact `AgentState` and `EvidenceItem`.
-  - `backend/agent/prompts.py`: structured planning schema and strict verification prompt.
-  - `backend/agent/llm_client.py`: multi-provider (Gemini, OpenAI, deterministic fallback) with disabled hidden retries.
-  - `backend/agent/planner.py`: Call 1 planning step.
-  - `backend/agent/final_answer.py`: 1 separate final answer call with untrusted text defense and "Insufficient information." rules.
-  - `backend/agent/controller.py`: adaptive deterministic retrieval controller.
-- Phase 4: Full Stack Integration:
-  - `backend/main.py`: FastAPI backend with PDF upload, document listing, and `/api/ask` endpoints.
-  - `frontend/`: React + TypeScript + Vite SPA with `BudgetGauge`, `DocumentSelector`, `AnswerCard`, `EvidenceList`, and `CallTrace`. Built to `frontend/dist`.
-- Phase 5 & 6: Evaluation & Documentation:
-  - 17/17 automated tests passing covering budget boundaries, missing information, supersession, and prompt injection defense.
-  - Generated `MEMO.md` covering architecture, justifications, and failure modes.
-  - Generated `README.md` with complete architecture and demonstration instructions.
+- Phase 2 to Phase 6 Full Implementation:
+  - `backend/agent/state.py`, `planner.py`, `controller.py`, `final_answer.py`, `llm_client.py`.
+  - Full React SPA Frontend with BudgetGauge, DocumentSelector, AnswerCard, EvidenceList, CallTrace.
+  - 17/17 automated test matrix passing.
+  - Written Memo (`MEMO.md`) & `README.md`.
+  - Created & pushed public GitHub repository: `https://github.com/SHIN-1O1/RAP_Comp`.
+
+## 2026-10-05 11:38
+
+### Completed
+- Integrated comprehensive prompt specification (Coverage Matrix, Entity-Attribute breakdown, Prompt Injection Defense, standard `ANSWER/EVIDENCE/STATUS` formatting).
+- Added multi-model fallback chain (`gemini-3.5-flash` → `gemini-3.8-flash`) and rate limit (429) resilience.
+- Updated all `.agent/` project brain files (`PROJECT_BRAIN.md`, `CONSTRAINTS.md`, `ARCHITECTURE.md`, `DECISIONS.md`, `CURRENT_STATE.md`, `SESSION_LOG.md`, `TEST_STATUS.md`, `TODO.md`).
+- Verified git status & repository synchronization.
