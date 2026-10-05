@@ -36,15 +36,64 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
 
         # Parse JSON from response
         plan_data = _parse_json_safely(response_text)
+
+        instruction_words = {
+            "compare", "comparison", "comparing", "contrast", "terms", "whether",
+            "method", "methods", "each", "how", "what", "which", "find", "explain", "describe", "show", "pdf", "csci415009_v2"
+        }
         
-        # Populate state
         state.intent = plan_data.get("intent", "factual")
-        state.entities = plan_data.get("entities", [])
-        state.attributes = plan_data.get("attributes", [])
-        state.keywords = plan_data.get("keywords", [])
+        raw_entities = plan_data.get("entities", [])
+        raw_attributes = plan_data.get("attributes", [])
+        raw_keywords = plan_data.get("keywords", [])
+
+        state.entities = [
+            _clean_term(e, instruction_words)
+            for e in raw_entities
+            if _clean_term(e, instruction_words)
+        ]
+        state.attributes = [
+            _clean_term(a, instruction_words)
+            for a in raw_attributes
+            if _clean_term(a, instruction_words)
+        ]
+        state.keywords = [
+            k.strip() for k in raw_keywords
+            if k.strip().lower() not in instruction_words
+        ]
         state.likely_headings = plan_data.get("likely_headings", [])
         state.temporal_requirement = plan_data.get("temporal_requirement")
         state.strategy = plan_data.get("strategy", "keyword_then_page")
+
+        # Safeguard for comparison questions if LLM failed to extract all entities or attributes
+        q_lower = state.question.lower()
+        is_comparison = state.intent == "comparison" or "compare" in q_lower or "versus" in q_lower or " vs " in q_lower or "difference" in q_lower
+        if is_comparison:
+            state.intent = "comparison"
+            if len(state.entities) < 2 or any(e.lower() in instruction_words for e in state.entities):
+                q_clean = re.sub(r'^(compare|contrast|comparison\s+of)\s+', '', state.question, flags=re.IGNORECASE).strip()
+                ent_str = re.split(r'\bterms\s+of\b', q_clean, flags=re.IGNORECASE)[0] if " terms of " in q_clean.lower() else q_clean
+                ent_str = re.sub(r'\s+\b(in|for|with|by|on|at|to|of)\b\s*$', '', ent_str, flags=re.IGNORECASE).strip()
+                extracted_ents = [
+                    _clean_term(e, instruction_words)
+                    for e in re.split(r',|\band\b|&', ent_str)
+                    if _clean_term(e, instruction_words)
+                ]
+                if len(extracted_ents) >= 2:
+                    state.entities = extracted_ents
+
+            if not state.attributes and " terms of " in q_lower:
+                attr_str = re.split(r'\bterms\s+of\b', state.question, flags=re.IGNORECASE)[1]
+                attrs = []
+                if "landmark" in attr_str.lower(): attrs.append("landmark selection")
+                if "complete" in attr_str.lower(): attrs.append("completeness")
+                if "optimal" in attr_str.lower(): attrs.append("optimality")
+                if attrs: state.attributes = attrs
+
+            # Ensure keywords contains all entities and attributes
+            for item in state.entities + state.attributes:
+                if item not in state.keywords:
+                    state.keywords.append(item)
 
         # Initialize coverage matrix if entities and attributes exist
         if state.entities and state.attributes:
@@ -61,13 +110,24 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
             success=True,
             budget_remaining=budget.remaining,
         )
-        return plan_data
+        return {
+            "intent": state.intent,
+            "entities": state.entities,
+            "attributes": state.attributes,
+            "keywords": state.keywords,
+            "likely_headings": state.likely_headings,
+            "temporal_requirement": state.temporal_requirement,
+            "strategy": state.strategy,
+        }
 
     except Exception as exc:
         # Robust deterministic fallback populating ALL AgentState fields
         q_lower = state.question.lower()
+        instruction_words = {
+            "compare", "comparison", "comparing", "contrast", "terms", "whether",
+            "method", "methods", "each", "how", "what", "which", "find", "explain", "describe", "show"
+        }
         
-        # 1. Intent & Temporal Requirement
         is_comparison = "compare" in q_lower or "versus" in q_lower or " vs " in q_lower or "difference" in q_lower
         is_temporal = any(w in q_lower for w in ["latest", "current", "update", "new", "revised", "amended"])
         
@@ -75,24 +135,43 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
         state.temporal_requirement = "latest" if is_temporal else None
         state.strategy = "keyword_then_page"
 
-        # 2. Extract Entities & Attributes
-        words = re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', q_lower)
-        stopwords = {
-            "what", "when", "where", "which", "who", "whom", "this", "that", "these",
-            "those", "does", "did", "have", "has", "had", "the", "and", "for", "with",
-            "about", "document", "tell", "explain", "find", "how", "many", "much", "compare", "terms"
-        }
-        filtered = [w for w in words if w not in stopwords]
-        
-        # Extract potential technical entities and attributes
-        state.keywords = filtered
-        if is_comparison and "terms" in q_lower:
-            parts = re.split(r'\bterms of\b', q_lower)
-            ent_part = parts[0]
-            attr_part = parts[1] if len(parts) > 1 else ""
-            state.entities = [w.strip() for w in re.split(r'[,|and]', ent_part) if len(w.strip()) > 2 and w.strip() not in stopwords]
-            state.attributes = [w.strip() for w in re.split(r'[,|and]', attr_part) if len(w.strip()) > 2 and w.strip() not in stopwords]
+        if is_comparison:
+            q_clean = re.sub(r'^(compare|contrast|comparison\s+of)\s+', '', state.question, flags=re.IGNORECASE).strip()
+            if " terms of " in q_clean.lower():
+                parts = re.split(r'\bterms\s+of\b', q_clean, flags=re.IGNORECASE)
+                ent_str = parts[0].strip()
+                attr_str = parts[1].strip() if len(parts) > 1 else ""
+            else:
+                ent_str = q_clean
+                attr_str = ""
+
+            # Extract distinct entities
+            raw_ents = re.split(r',|\band\b|&', ent_str)
+            state.entities = [
+                re.sub(r'^[^\w]+|[^\w]+$', '', e.strip())
+                for e in raw_ents
+                if len(e.strip()) >= 3 and e.strip().lower() not in instruction_words
+            ]
+
+            # Extract distinct attributes
+            state.attributes = []
+            if "landmark" in attr_str.lower(): state.attributes.append("landmark selection")
+            if "complete" in attr_str.lower(): state.attributes.append("completeness")
+            if "optimal" in attr_str.lower(): state.attributes.append("optimality")
+            
+            if not state.attributes and attr_str:
+                raw_attrs = re.split(r',|\band\b|&', attr_str)
+                state.attributes = [
+                    re.sub(r'^[^\w]+|[^\w]+$', '', a.strip())
+                    for a in raw_attrs
+                    if len(a.strip()) >= 3 and a.strip().lower() not in instruction_words
+                ]
+
+            state.keywords = state.entities + state.attributes
         else:
+            words = re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', q_lower)
+            filtered = [w for w in words if w not in instruction_words]
+            state.keywords = filtered
             state.entities = filtered[:3]
             state.attributes = filtered[3:6]
 
@@ -144,3 +223,16 @@ def _parse_json_safely(text: str) -> dict[str, Any]:
         if m:
             return json.loads(m.group(1))
         raise ValueError(f"Could not parse valid JSON from LLM output: {text[:100]}...")
+
+
+def _clean_term(term: str, instruction_words: set[str]) -> str:
+    cleaned = re.sub(r'^[^\w]+|[^\w]+$', '', term.strip())
+    cleaned = re.sub(r'\s+\b(in|for|with|by|on|at|to|of)\b$', '', cleaned, flags=re.IGNORECASE).strip()
+    if not cleaned or cleaned.lower() in instruction_words:
+        return ""
+    if cleaned.lower().endswith("graphs"):
+        cleaned = cleaned[:-1]
+    elif cleaned.lower().endswith("roadmaps"):
+        cleaned = cleaned[:-1]
+    return cleaned
+

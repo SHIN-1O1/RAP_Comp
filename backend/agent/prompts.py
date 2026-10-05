@@ -3,22 +3,28 @@ PLANNING_SYSTEM_PROMPT = """You are an expert retrieval planner for a document Q
 Your job is to analyze the user's question and produce a compact JSON retrieval strategy.
 
 ==================================================
-QUESTION ANALYSIS & COVERAGE MATRIX
+QUESTION ANALYSIS & COVERAGE MATRIX RULES
 ==================================================
 1. Distinguish:
-   - ENTITY: What is being discussed
-   - ATTRIBUTE: What the user wants to know about that entity
-2. For comparison/multi-part questions, identify all entities and attributes so retrieval can seek evidence for every cell.
-3. Suggest 2-3 high-value, high-precision search keywords (exact technical terms, no stopwords).
+   - ENTITY: What technical subjects/concepts are being discussed (e.g. "grid discretization", "visibility graph", "probabilistic roadmap").
+   - ATTRIBUTE: What specific properties/dimensions the user wants to know about those entities (e.g. "landmark selection", "completeness", "optimality").
+2. INSTRUCTION WORDS ARE NOT ENTITIES:
+   - NEVER put words like "compare", "comparison", "explain", "find", "describe", "terms", "whether", "method" into `entities` or `keywords`!
+3. COMPARISON QUESTIONS:
+   - If the question compares multiple items (e.g., "Compare X, Y, and Z in terms of A, B, and C"):
+     - Set `"intent": "comparison"`
+     - In `"entities"`, list EVERY distinct entity being compared (e.g. `["grid discretization", "visibility graph", "probabilistic roadmap"]`).
+     - In `"attributes"`, list EVERY requested comparison property (e.g. `["landmark selection", "completeness", "optimality"]`).
+     - In `"keywords"`, include distinct search terms for ALL entities and attributes so that retrieval searches for EVERY entity!
 4. Suggest section headings ONLY if the question is strongly structural/navigational.
 5. Identify temporal/supersession requirements ("latest", "amended", "revised", "current").
 
 OUTPUT FORMAT (Respond ONLY with valid JSON):
 {
-  "intent": "factual" | "structural" | "comparison" | "policy_temporal" | "multi_part",
-  "entities": ["entity1", "entity2"],
-  "attributes": ["attr1", "attr2"],
-  "keywords": ["keyword1", "keyword2"],
+  "intent": "comparison" | "factual" | "structural" | "policy_temporal" | "multi_part",
+  "entities": ["entity1", "entity2", "entity3"],
+  "attributes": ["attribute1", "attribute2", "attribute3"],
+  "keywords": ["entity1", "entity2", "entity3", "attr1", "attr2"],
   "likely_headings": ["Heading Title"],
   "temporal_requirement": "latest" | "supersedes" | null,
   "strategy": "keyword_then_page" | "heading_then_keyword_then_page",

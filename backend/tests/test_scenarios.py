@@ -86,18 +86,45 @@ def test_comparison_coverage_matrix(synthetic_test_pdf):
     Validation Test:
     Compare grid discretization, visibility graphs, and probabilistic roadmaps in terms of how landmarks are selected and whether each method is complete and optimal.
     """
-    controller = AgentController(max_calls=6)
-    result = controller.run(
-        doc_id=synthetic_test_pdf,
-        question="Compare grid discretization, visibility graphs, and probabilistic roadmaps in terms of how landmarks are selected and whether each method is complete and optimal."
+    question = (
+        "Compare grid discretization, visibility graphs, and "
+        "probabilistic roadmaps in terms of how landmarks are "
+        "selected and whether each method is complete and optimal."
     )
-
-    assert result["calls_used"] <= 6
-    assert result["calls_used"] >= 1
-    assert "coverage" in result
-    assert result["final_answer"] is not None
-    assert len(result["trace"]) >= 2
     
-    # Check trace records
+    # Test against actual reference document if available, else synthetic PDF
+    doc_id = "CSCI415009_V2.pdf" if (DOCS_DIR / "CSCI415009_V2.pdf").exists() else synthetic_test_pdf
+
+    controller = AgentController(max_calls=6)
+    result = controller.run(doc_id=doc_id, question=question)
+
+    # 1. Verify budget constraints
     pre_final = [r for r in result["trace"] if r["call_type"] != "final_answer"]
-    assert len(pre_final) <= 6
+    final_calls = [r for r in result["trace"] if r["call_type"] == "final_answer"]
+
+    assert len(pre_final) <= 6, f"Expected pre-final calls <= 6, got {len(pre_final)}"
+    assert len(final_calls) == 1, f"Expected exactly 1 final-answer call, got {len(final_calls)}"
+
+    # 2. Verify planner output in first call
+    planner_record = pre_final[0]
+    assert planner_record["call_type"] == "llm_planning"
+    summary = planner_record.get("result_summary", "")
+
+    # Ensure intent is comparison
+    assert "intent=comparison" in summary or "comparison" in str(planner_record)
+
+    # Ensure entities contain grid discretization, visibility graph, and probabilistic roadmap
+    summary_lower = summary.lower()
+    assert "grid discretization" in summary_lower or "grid" in summary_lower
+    assert "visibility graph" in summary_lower
+    assert "probabilistic roadmap" in summary_lower
+
+    # Ensure attributes contain landmark selection, completeness, and optimality
+    assert "landmark" in summary_lower
+    assert "completeness" in summary_lower
+    assert "optimality" in summary_lower
+
+    # 3. Verify retrieval log demonstrates visibility graph and probabilistic roadmap were searched/retrieved
+    tool_calls_text = " ".join([str(r) for r in pre_final]).lower()
+    assert "visibility graph" in tool_calls_text
+    assert "probabilistic roadmap" in tool_calls_text
