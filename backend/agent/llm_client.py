@@ -166,7 +166,7 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
     if "RETRIEVED EVIDENCE:" in user_prompt:
         evidence_part = user_prompt.split("RETRIEVED EVIDENCE:")[1].split("CALL TRACE SUMMARY:")[0].strip()
         if not evidence_part or "No evidence collected" in evidence_part:
-            return "Insufficient information.\n\nNo relevant evidence was found in the document within the allowed call budget."
+            return "Insufficient information in the provided document."
         
         # Extract question keywords
         q_match = re.search(r"(?:User Question|QUESTION):\s*\n?\s*([^\n]+)", user_prompt, re.IGNORECASE)
@@ -180,7 +180,7 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
 
         lower_evidence = evidence_part.split("EVIDENCE COVERAGE MATRIX:")[0].lower()
         if q_words and not any(w in lower_evidence for w in q_words):
-            return "Insufficient information in the document.\n\nRetrieved pages do not contain information answering the question."
+            return "Insufficient information in the provided document."
 
         # Check prompt injection markers
         injection_triggers = [
@@ -191,16 +191,50 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
         ]
         has_injection = any(re.search(pat, lower_evidence) for pat in injection_triggers)
         if has_injection:
-            # Strip injected instructions and check if any genuine factual evidence remains
             cleaned = evidence_part
             for pat in injection_triggers:
                 cleaned = re.sub(r'(?i)' + pat + r'.*?(\n|$)', '', cleaned)
-            
-            # If no genuine factual evidence remains after stripping adversarial text
             if not re.search(r'[a-zA-Z]{3,}', cleaned.replace("Chapter", "").replace("Notice", "")):
-                return "Insufficient information.\n\nRetrieved page contained unauthorized instruction redirects or adversarial text rather than factual evidence."
+                return "Insufficient information in the provided document."
             evidence_part = cleaned.strip()
 
-        return f"Answer:\nBased on the retrieved evidence:\n{evidence_part[:300]}...\n\nEvidence:\n- Page: Document evidence verified directly."
+        # Parse pages and extract synthesized answer sentences
+        page_matches = re.findall(
+            r'(?:--- Page (\d+) ---|\[Page (\d+) Content\]:)\s*\n(.*?)(?=\n(?:--- Page |\n\[Page |\nEVIDENCE COVERAGE MATRIX:|$))',
+            evidence_part,
+            re.DOTALL
+        )
+        
+        extracted_answers = []
+        source_pages = []
 
-    return "Insufficient information."
+        for p1, p2, p_text in page_matches:
+            p_num = p1 or p2
+            sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', p_text) if s.strip()]
+            for s in sentences:
+                s_lower = s.lower()
+                if any(qw in s_lower for qw in q_words):
+                    if s not in extracted_answers and len(s) >= 15:
+                        extracted_answers.append(s)
+                        if p_num and p_num not in source_pages:
+                            source_pages.append(p_num)
+
+        if extracted_answers:
+            answer_text = " ".join(extracted_answers[:3])
+            pages_str = ", Page ".join(source_pages)
+            return f"{answer_text}\n\nSource: Page {pages_str}"
+
+        # Fallback if text present but specific sentences couldn't be parsed
+        lines = [
+            line.strip() for line in evidence_part.splitlines()
+            if line.strip() and not line.startswith("---") and not line.startswith("[") and not line.startswith("Chapter")
+        ]
+        if lines:
+            first_line = lines[0]
+            p_match = re.search(r'Page (\d+)', evidence_part)
+            p_str = p_match.group(1) if p_match else "1"
+            return f"{first_line}\n\nSource: Page {p_str}"
+
+        return "Insufficient information in the provided document."
+
+    return "Insufficient information in the provided document."

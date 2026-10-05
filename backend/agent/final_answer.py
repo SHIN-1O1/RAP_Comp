@@ -23,7 +23,7 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
 
     # If no evidence was retrieved at all, return Insufficient information immediately
     if not state.evidence:
-        answer = "ANSWER:\nInsufficient information in the document.\n\nEVIDENCE:\n- None retrieved within call budget.\n\nSTATUS:\nINSUFFICIENT INFORMATION"
+        answer = "Insufficient information in the provided document."
         state.final_answer = answer
         state.final_answer_generated = True
         state.status = "COMPLETED"
@@ -70,7 +70,7 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
         )
         final_text = response.strip()
     except Exception as exc:
-        final_text = f"Insufficient information.\n\nError during final synthesis: {str(exc)}"
+        final_text = "Insufficient information in the provided document."
 
     state.final_answer = final_text
     state.final_answer_generated = True
