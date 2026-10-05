@@ -34,6 +34,7 @@ def detect_broad_overview_question(q: str) -> tuple[bool, Optional[str]]:
     """
     Detects broad overview / exploratory requests such as:
     - explain everything about X
+    - give me a comprehensive overview of X
     - give an overview of X / overview of X
     - explain X in detail
     - what does the document say about X
@@ -41,12 +42,18 @@ def detect_broad_overview_question(q: str) -> tuple[bool, Optional[str]]:
     """
     q_clean = q.strip().rstrip('?.')
     patterns = [
-        r'^(?:please\s+)?(?:explain|tell\s+me)\s+(?:everything|all)\s+about\s+(.+)',
-        r'^(?:please\s+)?(?:give\s+(?:an?\s+)?overview\s+of|overview\s+of|provide\s+(?:an?\s+)?overview\s+of)\s+(.+)',
-        r'^(?:please\s+)?(?:explain|describe)\s+(.+?)\s+in\s+detail',
+        # explain/tell me/summarize everything/all about X
+        r'^(?:please\s+)?(?:can\s+you\s+)?(?:explain|tell\s+me|summarize)\s+(?:everything|all)\s+about\s+(.+)',
+        # give/provide (me) (a/an) (broad/comprehensive/general/detailed) overview/summary of X
+        r'^(?:please\s+)?(?:can\s+you\s+)?(?:give(?:\s+me)?|provide(?:\s+me)?(?:\s+with)?)\s+(?:an?|the)?\s*(?:broad|comprehensive|general|detailed)?\s*(?:overview|summary)\s+of\s+(.+)',
+        # (broad/comprehensive/general) overview/summary of X
+        r'^(?:please\s+)?(?:can\s+you\s+)?(?:broad|comprehensive|general)\s+(?:overview|summary)\s+of\s+(.+)',
+        r'^(?:please\s+)?(?:overview|summary)\s+of\s+(.+)',
+        # explain/describe X in detail / comprehensively
+        r'^(?:please\s+)?(?:can\s+you\s+)?(?:explain|describe)\s+(.+?)\s+in\s+detail',
+        r'^(?:please\s+)?(?:can\s+you\s+)?(?:describe|explain)\s+(.+?)\s+comprehensively',
+        # what does the document say about X
         r'^(?:please\s+)?what\s+does\s+(?:the\s+)?document\s+say\s+about\s+(.+)',
-        r'^(?:please\s+)?(?:describe|explain)\s+(.+?)\s+comprehensively',
-        r'^(?:please\s+)?(?:broad|comprehensive)\s+overview\s+of\s+(.+)',
     ]
     for pat in patterns:
         m = re.search(pat, q_clean, flags=re.IGNORECASE)
