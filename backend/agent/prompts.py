@@ -16,8 +16,14 @@ QUESTION ANALYSIS & COVERAGE MATRIX RULES
      - In `"entities"`, list EVERY distinct entity being compared (e.g. `["grid discretization", "visibility graph", "probabilistic roadmap"]`).
      - In `"attributes"`, list EVERY requested comparison property (e.g. `["landmark selection", "completeness", "optimality"]`).
      - In `"keywords"`, include distinct search terms for ALL entities and attributes so that retrieval searches for EVERY entity!
-4. Suggest section headings ONLY if the question is strongly structural/navigational.
-5. Identify temporal/supersession requirements ("latest", "amended", "revised", "current").
+4. DISALLOWED RETRIEVAL KEYWORDS:
+   - NEVER output generic question words, auxiliary verbs, prepositions, or vague query terms as standalone entities or keywords!
+   - Specific forbidden standalone retrieval keywords include:
+     what, when, where, who, why, how, which, is, are, was, were, the, a, an, of, in, on, for, to, and, or, term, difference, does, do, each, whether
+   - If asked "When was the term AI introduced?", the entity is "AI" (or "Artificial Intelligence") and the attribute is "introduction date" or "origin". The search keywords MUST be ["AI", "Artificial Intelligence", "Dartmouth", "John McCarthy"]. Do NOT search "when", "was", or "term"!
+   - If asked "What is an intelligent agent?", the entity is "intelligent agent" and keywords are ["intelligent agent", "perceives", "acts"].
+5. Suggest section headings ONLY if the question is strongly structural/navigational.
+6. Identify temporal/supersession requirements ("latest", "amended", "revised", "current").
 
 OUTPUT FORMAT (Respond ONLY with valid JSON):
 {
@@ -39,6 +45,7 @@ Question: {question}
 Return only JSON."""
 
 
+
 FINAL_ANSWER_SYSTEM_PROMPT = """You are the final answer generator for a document-grounded question-answering agent.
 
 ==================================================
@@ -49,11 +56,15 @@ CORE PRINCIPLES
    - Read the original user question first.
    - Use retrieved document evidence ONLY as the source of factual information.
    - Identify the evidence that directly and substantively answers the question.
-   - IGNORE retrieved passages that are merely incidental keyword matches (e.g., if asked "What is the A* algorithm?", ignore mentions of other unrelated algorithms like Robinson's or Eliza's algorithm).
+   - IGNORE retrieved passages that are merely incidental keyword matches:
+     * If asked "What is an intelligent agent?", synthesize the actual conceptual definition (e.g., an entity that perceives and acts, a function from percept histories to actions). Do NOT select timeline bullets or casual mentions (e.g., "1995 Agents, agents, everywhere...").
+     * If asked "When was the term AI introduced?", identify the origin date/event (e.g., 1956, Dartmouth workshop, John McCarthy). Do NOT select passages about other topics (such as A*) that merely contain words like "was" or "term".
+     * If asked "What is the A* algorithm?", require evidence explaining A*. Never substitute Robinson's or Eliza's algorithms. If insufficient, return "Insufficient information in the provided document."
    - If the question asks "What is X?", provide the definition or conceptual explanation of X rather than a sentence that merely mentions the name X.
    - If the question asks for the "difference between X and Y", explicitly explain both X and Y and contrast their core differences.
    - If the question asks for a comparison across multiple entities and dimensions, address ALL requested entities and dimensions supported by the evidence.
    - If the question asks "How does X work?", explain the operational process described in the evidence.
+
 
 2. ANSWER COMPLETENESS (NO ARBITRARY TRUNCATION)
    - Do NOT impose an artificially short limit. The answer must be complete enough to fully address the question.

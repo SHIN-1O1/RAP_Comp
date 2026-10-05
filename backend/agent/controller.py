@@ -3,9 +3,10 @@ from typing import Any, Optional
 from backend.agent.budget import CallBudget, BudgetExceededError
 from backend.agent.logger import CallLogger
 from backend.agent.state import AgentState
-from backend.agent.planner import run_planning_step
+from backend.agent.planner import run_planning_step, DISALLOWED_STANDALONE_WORDS
 from backend.agent.final_answer import generate_final_answer
 from backend.tools.tool_wrapper import execute_tool
+
 
 
 class AgentController:
@@ -70,15 +71,10 @@ class AgentController:
             # STEP B: Keyword Search (Coverage-Driven with Component Fallback)
             # ==========================================
             search_queue: list[str] = []
-            stopwords = {
-                "compare", "comparison", "comparing", "contrast", "terms", "whether", "each",
-                "method", "methods", "how", "what", "which", "does", "did", "have", "has", "had",
-                "the", "and", "for", "with", "about", "document", "tell", "explain", "describe",
-                "find", "show", "definition", "overview", "meaning"
-            }
             for item in state.entities + state.attributes + state.keywords:
                 cleaned = item.strip().lower()
-                if cleaned and len(cleaned) >= 3 and cleaned not in stopwords and cleaned not in search_queue:
+                is_valid_len = (cleaned in {"ai", "a*"} or len(cleaned) >= 3)
+                if cleaned and is_valid_len and cleaned not in DISALLOWED_STANDALONE_WORDS and cleaned not in search_queue:
                     search_queue.append(cleaned)
 
             # Perform keyword searches as budget permits (reserving at least 1-2 calls for page extractions)
@@ -106,17 +102,19 @@ class AgentController:
                         state.page_keyword_map[p_num].add(kw)
                 else:
                     # Component term fallback: if multi-word phrase produced 0 pages, derive sub-terms
-                    words_in_kw = re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', kw)
+                    words_in_kw = re.findall(r'\b[a-zA-Z0-9_\*]{2,}\b', kw)
                     if len(words_in_kw) > 1:
                         for w in words_in_kw:
                             w_clean = w.lower().strip()
+                            is_valid_sub_len = (w_clean in {"ai", "a*"} or len(w_clean) >= 3)
                             if (
-                                w_clean not in stopwords
-                                and len(w_clean) >= 3
+                                w_clean not in DISALLOWED_STANDALONE_WORDS
+                                and is_valid_sub_len
                                 and w_clean not in search_queue
                                 and w_clean not in state.searched_keywords
                             ):
                                 search_queue.append(w_clean)
+
 
             # ==========================================
             # STEP C: Coverage-Driven Candidate Page Selection
