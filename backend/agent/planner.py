@@ -18,12 +18,15 @@ DISALLOWED_STANDALONE_WORDS = {
     # Articles, prepositions, conjunctions
     "the", "a", "an", "of", "in", "on", "for", "to", "and", "or", "with", "by", "at", "from", "as", "about",
     "between", "among", "versus", "vs", "against", "into", "through",
+    # Query / meta words that should never be standalone retrieval queries
+    "according", "accord", "based", "context", "regard", "regarding",
     # Generic instruction/attribute terms
     "term", "terms", "difference", "differences", "each", "whether",
     "compare", "comparison", "comparing", "contrast",
     "method", "methods", "tell", "explain", "describe", "show", "find",
     "definition", "overview", "meaning", "document", "pdf", "csci415009_v2"
 }
+
 
 
 
@@ -131,6 +134,19 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
                 if not state.attributes: state.attributes = ["definition", "heuristic search"]
                 for kw in ["A*", "heuristic search"]:
                     if kw not in state.keywords: state.keywords.append(kw)
+            else:
+                # Check for "X of Y" pattern (e.g. "population of Japan according to this document")
+                q_clean = re.sub(r'^(what\s+is|what\s+are|when\s+was|how\s+does|where\s+is|who\s+introduced|who\s+invented)\s+(the\s+|a\s+|an\s+)?', '', state.question, flags=re.IGNORECASE).strip(' ?.')
+                q_clean = re.sub(r'\s+\b(according\s+to\s+(this\s+)?document|in\s+(this\s+)?document|based\s+on\s+(this\s+)?document)\b.*$', '', q_clean, flags=re.IGNORECASE).strip(' ?.')
+                if " of " in q_clean.lower():
+                    parts = re.split(r'\bof\b', q_clean, flags=re.IGNORECASE)
+                    attr_cand = parts[0].strip()
+                    ent_cand = parts[1].strip()
+                    if ent_cand.lower() not in DISALLOWED_STANDALONE_WORDS and attr_cand.lower() not in DISALLOWED_STANDALONE_WORDS:
+                        state.entities = [ent_cand]
+                        state.attributes = [attr_cand]
+                        state.keywords = [ent_cand, attr_cand]
+
 
         # Initialize coverage matrix if entities and attributes exist
         if state.entities and state.attributes:
@@ -220,11 +236,29 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
                 state.attributes = ["difference", "traversal order"]
                 state.keywords = ["BFS", "DFS", "Breadth-first search", "Depth-first search"]
             else:
-                words = re.findall(r'\b[a-zA-Z0-9_\-]{2,}\b', q_lower)
-                filtered = [w for w in words if w not in DISALLOWED_STANDALONE_WORDS]
-                state.keywords = filtered
-                state.entities = filtered[:3]
-                state.attributes = filtered[3:6]
+                q_clean = re.sub(r'^(what\s+is|what\s+are|when\s+was|how\s+does|where\s+is|who\s+introduced|who\s+invented)\s+(the\s+|a\s+|an\s+)?', '', state.question, flags=re.IGNORECASE).strip(' ?.')
+                q_clean = re.sub(r'\s+\b(according\s+to\s+(this\s+)?document|in\s+(this\s+)?document|based\s+on\s+(this\s+)?document)\b.*$', '', q_clean, flags=re.IGNORECASE).strip(' ?.')
+                if " of " in q_clean.lower():
+                    parts = re.split(r'\bof\b', q_clean, flags=re.IGNORECASE)
+                    attr_cand = parts[0].strip()
+                    ent_cand = parts[1].strip()
+                    if ent_cand.lower() not in DISALLOWED_STANDALONE_WORDS and attr_cand.lower() not in DISALLOWED_STANDALONE_WORDS:
+                        state.entities = [ent_cand]
+                        state.attributes = [attr_cand]
+                        state.keywords = [ent_cand, attr_cand]
+                    else:
+                        words = re.findall(r'\b[a-zA-Z0-9_\-]{2,}\b', q_lower)
+                        filtered = [w for w in words if w not in DISALLOWED_STANDALONE_WORDS]
+                        state.keywords = filtered
+                        state.entities = filtered[:3]
+                        state.attributes = filtered[3:6]
+                else:
+                    words = re.findall(r'\b[a-zA-Z0-9_\-]{2,}\b', q_lower)
+                    filtered = [w for w in words if w not in DISALLOWED_STANDALONE_WORDS]
+                    state.keywords = filtered
+                    state.entities = filtered[:3]
+                    state.attributes = filtered[3:6]
+
 
 
         state.likely_headings = []

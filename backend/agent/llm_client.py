@@ -305,7 +305,8 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
         stopwords = {
             "what", "when", "where", "which", "who", "whom", "this", "that", "these",
             "those", "does", "did", "have", "has", "had", "the", "and", "for", "with",
-            "about", "document", "tell", "explain", "find", "how", "many", "much", "show", "is", "are"
+            "about", "document", "tell", "explain", "find", "how", "many", "much", "show", "is", "are",
+            "according", "accord", "based", "context", "regard", "regarding"
         }
         generic_words = {"algorithm", "method", "problem", "approach", "system", "technique", "difference"}
         q_words = [w.lower() for w in re.findall(r'\b[a-zA-Z0-9_\-]{2,}\b', question_str) if w.lower() not in stopwords]
@@ -313,6 +314,11 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
 
         # Require at least one substantive subject word in evidence
         if substantive_q_words and not any(w in lower_evidence for w in substantive_q_words):
+            return "Insufficient information in the provided document."
+
+        # Check target entity presence: if the question specifies concrete entities (e.g. Japan) that are completely absent, return Insufficient information
+        q_entities = [w for w in re.findall(r'\b[a-zA-Z]{3,}\b', question_str) if w.lower() not in stopwords and w.lower() not in generic_words]
+        if q_entities and not any(e.lower() in lower_evidence for e in q_entities):
             return "Insufficient information in the provided document."
 
         # Score and rank sentences by relevance to question
@@ -332,6 +338,7 @@ def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:
                 if match_count >= 1 or (not substantive_q_words and any(w in s_lower for w in q_words)):
                     score = match_count * 3 + sum(1 for w in q_words if w in s_lower)
                     scored_sentences.append((score, s, p_num))
+
 
         if scored_sentences:
             # Sort by score descending

@@ -4,8 +4,9 @@ from backend.agent.budget import CallBudget, BudgetExceededError
 from backend.agent.logger import CallLogger
 from backend.agent.state import AgentState
 from backend.agent.planner import run_planning_step, DISALLOWED_STANDALONE_WORDS
-from backend.agent.final_answer import generate_final_answer
+from backend.agent.final_answer import generate_final_answer, evaluate_claim_in_text
 from backend.tools.tool_wrapper import execute_tool
+
 
 
 
@@ -236,12 +237,10 @@ class AgentController:
 
     def _update_matrix_coverage(self, state: AgentState, page_text: str):
         """Updates ENTITY x ATTRIBUTE matrix coverage based on extracted page text."""
-        text_lower = page_text.lower()
         for ent, attrs in state.coverage.items():
-            ent_lower = ent.lower()
-            if ent_lower in text_lower or any(part in text_lower for part in ent_lower.split() if len(part) >= 4):
-                for attr, status in attrs.items():
-                    if status == "NOT_ESTABLISHED":
-                        attr_lower = attr.lower()
-                        if attr_lower in text_lower or any(part in text_lower for part in attr_lower.split() if len(part) >= 4):
-                            state.update_claim_coverage(ent, attr, "SUPPORTED")
+            for attr, status in attrs.items():
+                if status == "NOT_ESTABLISHED":
+                    if evaluate_claim_in_text(ent, attr, page_text):
+                        state.update_claim_coverage(ent, attr, "SUPPORTED")
+
+
