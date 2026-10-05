@@ -25,10 +25,11 @@ LLM = reasoning.
 Code = control.
 
 ## Current Status
-Fully implemented, tested (17/17 passing), documented (`MEMO.md`, `README.md`), and pushed to GitHub (`https://github.com/SHIN-1O1/RAP_Comp`).
+Fully implemented, tested (unit, scenario, and targeted validation suites passing), documented (`MEMO.md`, `README.md`), and pushed to GitHub (`https://github.com/SHIN-1O1/RAP_Comp`). All 6 implementation weaknesses resolved, multi-word keyword fallback enabled, and final answer synthesis grounded with strict relevance filtering and complete multi-entity coverage.
 
 ## Active Task
 Project maintenance & live demonstration readiness.
+
 
 ## Known Issues & Mitigations
 - Scanned PDF images without embedded text layer (mitigation: on-demand OCR).

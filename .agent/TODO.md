@@ -16,7 +16,11 @@
 ## P1
 - [x] Add comprehensive test suite (direct factual, multi-page, contradiction/supersession, missing info, prompt injection, budget boundary)
 - [x] Polish UI with sleek modern styling and real-time trace inspection
+- [x] Entity x Attribute coverage matrix in AgentState & coverage-driven retrieval
+- [x] Keyword component-term fallback for semantic planner entities
+- [x] Grounded final answer synthesis without keyword hijacking or truncation
 
 ## P2
 - [x] Written memo draft (architecture, justification, failure modes) in `MEMO.md`
 - [x] Comprehensive documentation and live demo instructions in `README.md`
+
