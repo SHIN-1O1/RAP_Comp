@@ -27,82 +27,89 @@ In this challenge, an autonomous agent must reason over unseen user-uploaded PDF
 
 ```mermaid
 flowchart TD
-    subgraph USER_LAYER ["User & Client Layer"]
-        U["User"]
-        FE["React + Vite Single-Page Application\n(Upload PDF, Question Input, Call Budget Gauge, Citation Viewer, Audit Trace)"]
+    %% Global Styling Classes
+    classDef clientStyle fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0369a1;
+    classDef harnessStyle fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#92400e;
+    classDef reasoningStyle fill:#f3e8ff,stroke:#9333ea,stroke-width:2px,color:#6b21a8;
+    classDef discoveryStyle fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#15803d;
+    classDef toolStyle fill:#fee2e2,stroke:#dc2626,stroke-width:2px,color:#991b1b;
+    classDef gateStyle fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#334155;
+
+    subgraph S1 ["1. CLIENT & INGESTION LAYER"]
+        U(["👤 User"]):::clientStyle
+        FE["<b>React UI (Vite SPA)</b><br/>PDF Upload • Question Input • 6-Call Gauge • Audit Trace"]:::clientStyle
+        API["<b>FastAPI REST Server</b><br/>/api/upload • /api/documents • /api/ask • /api/health"]:::clientStyle
+        INGEST["<b>Document Ingestion</b><br/>SHA256 Content Hash • Scoped Chunk Store"]:::discoveryStyle
     end
 
-    subgraph API_LAYER ["FastAPI Backend Layer"]
-        API["FastAPI REST Endpoints\n(/api/upload, /api/documents, /api/ask, /api/health)"]
-        INGEST["Document Ingestion\n(PDF SHA256 Hash, Scoped Lexical Chunk Store)"]
+    subgraph S2 ["2. DETERMINISTIC HARNESS & PLANNING (Python = Control, LLM = Reasoning)"]
+        CTRL["<b>AgentController</b><br/>State Machine & Lifecycle Governance"]:::harnessStyle
+        BUDGET["<b>CallBudget Controller</b><br/>Hard Max 6 Pre-Final Calls (Call 7 Blocked)"]:::harnessStyle
+        PLANNER["<b>LLM Planner (Call 1)</b><br/>Intent • Entities • Attributes • Keywords • Strategy"]:::reasoningStyle
+        FB_PLAN["<i>Fallback Planner (Local)</i><br/>Regex Taxonomy on API Error"]:::reasoningStyle
+        STATE["<b>AgentState & Coverage Matrix</b><br/>Entity × Attribute Tracking (NOT_ESTABLISHED)"]:::harnessStyle
     end
 
-    subgraph HARNESS_LAYER ["Deterministic Python Harness (Authority & Control)"]
-        CTRL["AgentController\n(Deterministic State Machine)"]
-        BUDGET["CallBudget(max_calls=6)\n(Pre-execution deduction, Call 7 Rejection)"]
-        REGISTRY["Allowed Tool Allowlist\n(list_documents, list_headings, search_keyword, get_page)"]
-        STATE["AgentState & Coverage Matrix\n(Entity x Attribute Grid, Deduplicated Evidence Store)"]
-        GATE["Deterministic Relevance Gate\n(Entity presence & attribute substance verification)"]
-        LOG["CallLogger & Observability\n(Step audit, latencies, provider/mode, secret sanitization)"]
+    subgraph S3 ["3. CANDIDATE DISCOVERY (Zero Budget Cost — Not Final Evidence)"]
+        CHUNKS["<b>Local Chunk Store</b><br/>~550 words • 75w overlap • Page Bounds • SHA256"]:::discoveryStyle
+        BM25["<b>Pure Python Lexical Retriever</b><br/>BM25 / TF-IDF • Stemming • Co-occurrence"]:::discoveryStyle
+        CAND_PAGES["<b>Candidate Page Ranker</b><br/>Coverage-Driven Priority Queue"]:::discoveryStyle
     end
 
-    subgraph PLANNING_LAYER ["Reasoning Layer: Planning"]
-        PLAN_LLM["Planner LLM (Call 1)\n(Intent, Entities, Attributes, Keywords, Likely Headings, Strategy)"]
-        PLAN_FB["Local Rule-Based Fallback Planner\n(Instant regex & structural taxonomy on API failure)"]
+    subgraph S4 ["4. PRESCRIBED DOCUMENT RETRIEVAL (Consumes 6-Call Budget)"]
+        REGISTRY{"<b>Allowed Tools Registry</b><br/>Pre-execution deduction & Allowlist check"}:::toolStyle
+        T_HEAD["<code>list_headings(doc_id)</code><br/>TOC & Structural Bookmarks"]:::toolStyle
+        T_KW["<code>search_keyword(doc_id, kw)</code><br/>1-Indexed Page Numbers Only"]:::toolStyle
+        T_PAGE["<code>get_page(doc_id, p_num)</code><br/><b>AUTHORITATIVE VERBATIM TEXT</b>"]:::toolStyle
     end
 
-    subgraph DISCOVERY_LAYER ["Candidate Discovery Layer (Zero Budget Cost)"]
-        CHUNKS["Local Chunk Store\n(~550 words, 75-word overlap, page isolation, SHA256)"]
-        BM25["Pure Python Lexical Retriever\n(BM25/TF-IDF, Stemming, Entity x Attribute Co-occurrence)"]
-        RANK["Candidate Page Aggregator & Ranker\n(Coverage-driven prioritization)"]
+    subgraph S5 ["5. EVIDENCE GOVERNANCE & RELEVANCE GATE"]
+        EVID_STORE["<b>Deduplicated Evidence Store</b><br/>Provenance • Verbatim Text • Relations"]:::gateStyle
+        REL_GATE{"<b>Deterministic Relevance Gate</b><br/>Entity Presence & Attribute Substance Check"}:::gateStyle
     end
 
-    subgraph PRESCRIBED_TOOLS ["Prescribed Document Tools (Consumes Budget)"]
-        T_HEAD["list_headings(doc_id)"]
-        T_KW["search_keyword(doc_id, keyword)"]
-        T_PAGE["get_page(doc_id, page_number)\n(AUTHORITATIVE EVIDENCE)"]
+    subgraph S6 ["6. FINAL SYNTHESIS & OBSERVABILITY (Separate Final Call)"]
+        FINAL_LLM["<b>Final Answer LLM (Call 2)</b><br/>Evidence Grounding • Supersession • Citations"]:::reasoningStyle
+        FINAL_FB["<i>Fallback Synthesizer</i><br/>'Insufficient information in provided document.'"]:::reasoningStyle
+        OUTPUT(["<b>Client Response</b><br/>Verified Answer • Page Citations • Full Audit Trace"]):::clientStyle
     end
 
-    subgraph FINAL_LAYER ["Reasoning Layer: Final Synthesis"]
-        FINAL_LLM["Final Answer LLM (Separate Call)\n(Evidence verification, contradictions, supersession, synthesis)"]
-        FINAL_FB["Local Fallback Synthesizer\n(Deterministic extraction or 'Insufficient information.')"]
-    end
+    %% Sequential Pipeline Connections
+    U --> FE
+    FE --> API
+    API --> INGEST
+    INGEST -.->|"Builds / loads chunks"| CHUNKS
+    API --> CTRL
 
-    %% Flow Connections
-    U -->|"Uploads PDF & Questions"| FE
-    FE -->|"HTTP REST Requests"| API
-    API -->|"Builds / validates chunks"| INGEST
-    INGEST -->|"Isolated doc_id store"| CHUNKS
-    API -->|"Invokes run(doc_id, question)"| CTRL
+    CTRL -->|"1. Pre-call deduction"| BUDGET
+    BUDGET -->|"2. Dispatches Call 1"| PLANNER
+    PLANNER -.->|"On API Error"| FB_PLAN
+    PLANNER -->|"Structured Plan"| STATE
+    FB_PLAN -->|"Fallback Plan"| STATE
 
-    CTRL -->|"1. Consumes 1 call"| BUDGET
-    CTRL -->|"2. Proposes plan"| PLAN_LLM
-    PLAN_LLM -.->|"On API Error"| PLAN_FB
-    PLAN_LLM -->|"Structured Plan"| STATE
-
-    STATE -->|"Queries search terms"| BM25
+    STATE -->|"Query terms"| BM25
     CHUNKS --> BM25
-    BM25 -->|"Ranked candidate pages"| RANK
-    RANK -->|"Feeds candidate queue"| CTRL
+    BM25 --> CAND_PAGES
+    CAND_PAGES -->|"Candidate queue"| REGISTRY
 
-    CTRL -->|"Consumes call & executes"| T_HEAD
-    CTRL -->|"Consumes call & executes"| T_KW
-    CTRL -->|"Consumes call & executes"| T_PAGE
+    REGISTRY -->|"Calls 2..6 (Outline)"| T_HEAD
+    REGISTRY -->|"Calls 2..6 (Keyword)"| T_KW
+    REGISTRY -->|"Calls 2..6 (Page read)"| T_PAGE
 
-    T_HEAD -.->|"Outline metadata"| STATE
-    T_KW -.->|"Page numbers only"| STATE
-    T_PAGE ==>|"Authoritative raw page text"| STATE
+    T_HEAD -.->|"Outline metadata"| EVID_STORE
+    T_KW -.->|"Matching pages"| EVID_STORE
+    T_PAGE ==>|"Authoritative raw text"| EVID_STORE
 
-    STATE -->|"Evaluates claim coverage"| GATE
-    GATE -->|"Sufficient & Relevant Evidence"| FINAL_LLM
-    GATE -->|"Insufficient / Missing Evidence"| FINAL_FB
+    EVID_STORE -->|"Updates matrix"| STATE
+    STATE --> REL_GATE
+
+    REL_GATE -->|"Sufficient Evidence"| FINAL_LLM
+    REL_GATE -->|"Missing / Unrelated"| FINAL_FB
     FINAL_LLM -.->|"On API Error"| FINAL_FB
 
-    FINAL_LLM -->|"Grounded Answer"| CTRL
-    FINAL_FB -->|"'Insufficient information.'"| CTRL
-    CTRL -->|"Returns AskResponse"| API
-    API -->|"JSON Response + Trace"| FE
-    LOG -.->|"Real-time audit records"| FE
+    FINAL_LLM --> OUTPUT
+    FINAL_FB --> OUTPUT
+    OUTPUT --> FE
 ```
 
 ### Fallback ASCII Execution Diagram
@@ -500,68 +507,77 @@ backend/tests/test_scenarios.py ..................... [ 3 passed]
 
 ```mermaid
 flowchart TD
-    classDef client fill:#e0f2fe,stroke:#0284c7,stroke-width:2px;
-    classDef harness fill:#fef3c7,stroke:#d97706,stroke-width:2px;
-    classDef reasoning fill:#f3e8ff,stroke:#9333ea,stroke-width:2px;
-    classDef discovery fill:#dcfce7,stroke:#16a34a,stroke-width:2px;
-    classDef tool fill:#fee2e2,stroke:#dc2626,stroke-width:2px;
+    %% Styling Classes
+    classDef clientStyle fill:#e0f2fe,stroke:#0284c7,stroke-width:2px,color:#0369a1;
+    classDef harnessStyle fill:#fef3c7,stroke:#d97706,stroke-width:2px,color:#92400e;
+    classDef reasoningStyle fill:#f3e8ff,stroke:#9333ea,stroke-width:2px,color:#6b21a8;
+    classDef discoveryStyle fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#15803d;
+    classDef toolStyle fill:#fee2e2,stroke:#dc2626,stroke-width:2px,color:#991b1b;
+    classDef gateStyle fill:#f1f5f9,stroke:#64748b,stroke-width:2px,color:#334155;
 
-    subgraph CLIENT ["1. User & Client Layer"]
-        U["User Question"]:::client
-        FE["React UI: Call Budget Gauge + Evidence Provenance + Audit Trace"]:::client
+    subgraph P1 ["STAGE 1: USER & INGESTION"]
+        USER_INPUT(["👤 User Question"]):::clientStyle
+        UI_PANEL["<b>React UI</b><br/>Budget Gauge • Audit Timeline • Citations"]:::clientStyle
+        DOC_STORE["<b>Scoped Local Chunks</b><br/>~550w Chunks • SHA256 Isolated"]:::discoveryStyle
     end
 
-    subgraph HARNESS ["2. Deterministic Control Layer (Python = Control)"]
-        CTRL["AgentController (State Machine)"]:::harness
-        BUDGET["CallBudget (Max 6 Pre-Final Calls)"]:::harness
-        STATE["AgentState & Entity x Attribute Coverage Matrix"]:::harness
-        GATE["Deterministic Evidence Relevance Gate"]:::harness
+    subgraph P2 ["STAGE 2: HARNESS GOVERNANCE & PLANNING"]
+        CTRL_CORE["<b>AgentController & CallBudget</b><br/>Hard Max 6 Pre-Final Calls"]:::harnessStyle
+        PLAN_STEP["<b>LLM Planner (Call 1)</b><br/>Decomposes Intent, Entities, Attributes"]:::reasoningStyle
+        COV_MATRIX["<b>AgentState Coverage Matrix</b><br/>Entity × Attribute Tracking Grid"]:::harnessStyle
     end
 
-    subgraph PLAN ["3. Planning Layer (LLM = Reasoning)"]
-        PLAN_LLM["Planner LLM (Call 1)"]:::reasoning
-        PLAN_FB["Local Rule Fallback Planner"]:::reasoning
+    subgraph P3 ["STAGE 3: CANDIDATE DISCOVERY (Zero Budget Cost)"]
+        LEX_RET["<b>BM25 Lexical Retriever</b><br/>Stemming + Co-occurrence Scoring"]:::discoveryStyle
+        RANK_QUEUE["<b>Candidate Page Priority Queue</b><br/>Ranked by Unresolved Claims"]:::discoveryStyle
     end
 
-    subgraph DISCOVERY ["4. Candidate Discovery (Zero Budget Cost)"]
-        CHUNKS["Local Chunk Store (550w / 75w overlap / SHA256)"]:::discovery
-        BM25["Pure Python Lexical Retriever (BM25 + Stemming + Co-occurrence)"]:::discovery
+    subgraph P4 ["STAGE 4: PRESCRIBED DOCUMENT RETRIEVAL (Consumes Budget)"]
+        TOOL_EXEC{"<b>Allowed Tools Governance</b><br/>Pre-Call Budget Check"}:::toolStyle
+        TOOL_H["<code>list_headings(doc_id)</code>"]:::toolStyle
+        TOOL_K["<code>search_keyword(doc_id, kw)</code>"]:::toolStyle
+        TOOL_P["<code>get_page(doc_id, page)</code><br/><b>AUTHORITATIVE EVIDENCE</b>"]:::toolStyle
     end
 
-    subgraph TOOLS ["5. Prescribed Document Tools (Consumes Budget)"]
-        T_HEAD["list_headings(doc_id)"]:::tool
-        T_KW["search_keyword(doc_id, keyword)"]:::tool
-        T_PAGE["get_page(doc_id, page_number) -> AUTHORITATIVE EVIDENCE"]:::tool
+    subgraph P5 ["STAGE 5: EVIDENCE VERIFICATION & RELEVANCE GATE"]
+        RAW_EVID["<b>Deduplicated Evidence Store</b><br/>Verbatim Page Content & Provenance"]:::gateStyle
+        GATE_CHECK{"<b>Deterministic Relevance Gate</b><br/>Entities & Attributes Verified?"}:::gateStyle
     end
 
-    subgraph SYNTHESIS ["6. Final Synthesis Layer (Single Separate Call)"]
-        FINAL_LLM["Final Answer LLM (Evidence-Grounded Synthesis)"]:::reasoning
-        FINAL_FB["Fallback / 'Insufficient information.'"]:::reasoning
+    subgraph P6 ["STAGE 6: FINAL SYNTHESIS & AUDIT TRACE"]
+        SYNTH_LLM["<b>Final Answer LLM (Call 2)</b><br/>Evidence Grounding • Supersession • Citations"]:::reasoningStyle
+        REFUSE_ANS["<i>Refusal / Fallback</i><br/>'Insufficient information in provided document.'"]:::reasoningStyle
+        FINAL_OUT(["<b>Verified Output Response</b>"]):::clientStyle
     end
 
-    %% Connections
-    U --> FE --> CTRL
-    CTRL -->|"Pre-execution deduction"| BUDGET
-    CTRL -->|"Call 1"| PLAN_LLM
-    PLAN_LLM -.->|"On Failure"| PLAN_FB
-    PLAN_LLM -->|"Extracts Entities & Attributes"| STATE
+    %% Clean Top-Down Pipeline
+    USER_INPUT --> UI_PANEL
+    UI_PANEL --> CTRL_CORE
+    CTRL_CORE -->|"1. Consumes Call 1"| PLAN_STEP
+    PLAN_STEP -->|"Initializes Grid"| COV_MATRIX
 
-    STATE -->|"Query terms"| BM25
-    CHUNKS --> BM25
-    BM25 -->|"Ranked Candidate Pages"| CTRL
+    COV_MATRIX -->|"Queries Terms"| LEX_RET
+    DOC_STORE --> LEX_RET
+    LEX_RET --> RANK_QUEUE
 
-    CTRL -->|"Calls 2..6 as needed"| T_HEAD
-    CTRL -->|"Calls 2..6 as needed"| T_KW
-    CTRL -->|"Calls 2..6 as needed"| T_PAGE
+    RANK_QUEUE -->|"Feeds Next Page"| TOOL_EXEC
+    TOOL_EXEC -->|"Consumes Call 2..6"| TOOL_H
+    TOOL_EXEC -->|"Consumes Call 2..6"| TOOL_K
+    TOOL_EXEC -->|"Consumes Call 2..6"| TOOL_P
 
-    T_PAGE ==>|"Authoritative Page Text"| STATE
-    STATE -->|"Verifies claim coverage"| GATE
-    GATE -->|"Sufficient Evidence"| FINAL_LLM
-    GATE -->|"Inadequate Evidence"| FINAL_FB
-    FINAL_LLM -.->|"On Failure"| FINAL_FB
+    TOOL_H -.-> RAW_EVID
+    TOOL_K -.-> RAW_EVID
+    TOOL_P ==>|"Authoritative Text"| RAW_EVID
 
-    FINAL_LLM --> FE
-    FINAL_FB --> FE
+    RAW_EVID -->|"Updates Matrix"| COV_MATRIX
+    COV_MATRIX --> GATE_CHECK
+
+    GATE_CHECK -->|"Sufficient"| SYNTH_LLM
+    GATE_CHECK -->|"Insufficient"| REFUSE_ANS
+
+    SYNTH_LLM --> FINAL_OUT
+    REFUSE_ANS --> FINAL_OUT
+    FINAL_OUT --> UI_PANEL
 ```
 
 ---
