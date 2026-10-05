@@ -12,7 +12,7 @@ class AgentController:
     """
     Orchestrates the budgeted document QA pipeline:
     LLM = REASONING (Planner suggestions)
-    CODE = CONTROL (Budget enforcement, tool execution, safety boundaries)
+    CODE = CONTROL (Budget enforcement, tool execution, coverage-driven page selection)
     """
     def __init__(self, max_calls: int = 6):
         self.max_calls = max_calls
@@ -31,14 +31,17 @@ class AgentController:
             # ==========================================
             run_planning_step(state, budget, logger)
 
-            # ==========================================
-            # ADAPTIVE DETERMINISTIC RETRIEVAL
-            # Controlled strictly by Python rules
-            # ==========================================
             state.status = "RETRIEVING"
-            candidate_pages: list[int] = []
 
-            # Step A: Heading-first navigation if indicated
+            # Check for temporal / supersession requirement in question
+            is_temporal = (
+                state.temporal_requirement in ["latest", "supersedes"]
+                or any(w in question.lower() for w in ["current", "latest", "updated", "new", "amended", "revised", "present", "now"])
+            )
+
+            # ==========================================
+            # STEP A: Heading Navigation (if indicated)
+            # ==========================================
             if state.likely_headings and budget.remaining >= 2 and state.strategy == "heading_then_keyword_then_page":
                 headings_result = execute_tool(
                     "list_headings",
@@ -48,21 +51,40 @@ class AgentController:
                 )
                 state.headings = headings_result or []
 
-                # Find candidate pages from matching headings
                 for h in state.headings:
                     h_title = h.get("title", "").lower()
                     h_page = h.get("page")
                     if h_page:
-                        # Match against planner headings or keywords
+                        # Match against headings, entities, or keywords
                         if any(lh.lower() in h_title for lh in state.likely_headings) or \
+                           any(ent.lower() in h_title for ent in state.entities) or \
                            any(kw.lower() in h_title for kw in state.keywords):
-                            candidate_pages.append(int(h_page))
+                            p_num = int(h_page)
+                            if p_num not in state.candidate_pages:
+                                state.candidate_pages.append(p_num)
+                            if p_num not in state.page_keyword_map:
+                                state.page_keyword_map[p_num] = set()
+                            state.page_keyword_map[p_num].add("heading")
 
-            # Step B: Keyword Search (only if budget allows)
-            search_keywords = state.keywords[:2]  # limit to top 2 keywords to conserve budget
-            for kw in search_keywords:
-                if budget.remaining <= 0:
+            # ==========================================
+            # STEP B: Keyword Search (Coverage-Driven)
+            # ==========================================
+            # Assemble all useful keywords (entities first, then attributes, then remaining keywords)
+            search_queue: list[str] = []
+            stopwords = {"compare", "versus", "terms", "whether", "each", "method", "how", "what", "which", "does", "difference"}
+            for item in state.entities + state.attributes + state.keywords:
+                cleaned = item.strip().lower()
+                if cleaned and len(cleaned) >= 3 and cleaned not in stopwords and cleaned not in search_queue:
+                    search_queue.append(cleaned)
+
+            # Perform keyword searches as budget permits (reserving at least 1-2 calls for page extractions)
+            for kw in search_queue:
+                # Keep calls for get_page: stop searching if remaining <= 2 and we already have candidate pages
+                if budget.remaining <= 1 or (budget.remaining <= 2 and len(state.candidate_pages) >= 2):
                     break
+                if kw in state.searched_keywords:
+                    continue
+
                 state.searched_keywords.append(kw)
                 matched_pages = execute_tool(
                     "search_keyword",
@@ -72,53 +94,56 @@ class AgentController:
                 )
                 if matched_pages:
                     for p in matched_pages:
-                        candidate_pages.append(int(p))
+                        p_num = int(p)
+                        if p_num not in state.candidate_pages:
+                            state.candidate_pages.append(p_num)
+                        if p_num not in state.page_keyword_map:
+                            state.page_keyword_map[p_num] = set()
+                        state.page_keyword_map[p_num].add(kw)
 
-            # Deduplicate candidate pages
-            ordered_candidates: list[int] = []
-            seen = set()
-            for p in candidate_pages:
-                if p not in seen and p not in state.pages_read:
-                    seen.add(p)
-                    ordered_candidates.append(p)
+            # ==========================================
+            # STEP C: Coverage-Driven Candidate Page Selection
+            # ==========================================
+            while budget.remaining > 0:
+                # Filter out pages already read
+                unretrieved = [p for p in state.candidate_pages if p not in state.pages_read]
+                if not unretrieved:
+                    break
 
-            # If question involves supersession or latest updates, reverse or prioritize later pages
-            is_temporal = state.temporal_requirement in ["latest", "supersedes"] or \
-                          any(w in question.lower() for w in ["current", "latest", "updated", "new", "amended", "revised", "present", "now"])
-
-            if is_temporal:
-                ordered_candidates.sort(reverse=True)
-
-            # Step C: Retrieve Pages within remaining budget
-            for page_num in ordered_candidates:
-                if budget.remaining <= 0:
-                    state.status = "BUDGET_EXHAUSTED"
+                # Score each unretrieved candidate page based on unresolved claims and relevance
+                best_page = self._select_best_candidate_page(unretrieved, state, is_temporal)
+                if not best_page:
                     break
 
                 page_text = execute_tool(
                     "get_page",
-                    {"doc_id": doc_id, "page_number": page_num},
+                    {"doc_id": doc_id, "page_number": best_page},
                     budget,
                     logger,
                 )
-                state.pages_read.append(page_num)
+                state.pages_read.append(best_page)
 
-                # Add to evidence store
-                # Check for contradiction or supersession cues
-                relation = "SUPPORTS"
-                if any(w in page_text.lower() for w in ["supersede", "replaces", "updated policy", "effective date", "revised"]):
-                    relation = "SUPERSEDES"
-                
+                # Add evidence item (relation is purely SUPPORTED; Final LLM determines supersession/contradiction)
                 state.add_evidence(
-                    page_number=page_num,
+                    page_number=best_page,
                     content=page_text,
-                    relevance=f"Matched keywords from question",
-                    relation=relation,
+                    relevance=f"Matched keywords: {list(state.page_keyword_map.get(best_page, []))}",
+                    relation="SUPPORTS",
                 )
 
-                # Early stopping check for simple factual queries if key terms are found
+                # Update state coverage matrix based on page_text content
+                self._update_matrix_coverage(state, page_text)
+
+                # Check if all required claims are established
+                if state.coverage and len(state.get_unresolved_claims()) == 0:
+                    break
+
+                # Early stopping check for simple factual queries if sufficient evidence gathered
                 if state.intent == "factual" and not is_temporal and len(state.evidence) >= 2:
                     break
+
+            if budget.remaining <= 0:
+                state.status = "BUDGET_EXHAUSTED"
 
         except BudgetExceededError:
             state.status = "BUDGET_EXHAUSTED"
@@ -149,9 +174,59 @@ class AgentController:
             "status": state.status,
             "final_answer": final_answer,
             "evidence": [ev.to_dict() for ev in state.evidence],
+            "coverage": state.coverage,
             "calls_used": budget.used,
             "max_calls": budget.max_calls,
             "budget_remaining": budget.remaining,
             "trace": logger.get_trace(),
             "trace_summary": logger.get_trace_summary(),
         }
+
+    def _select_best_candidate_page(
+        self, unretrieved: list[int], state: AgentState, is_temporal: bool
+    ) -> Optional[int]:
+        """
+        Calculates a deterministic coverage/relevance score for candidate pages:
+        1. Number of unique keywords/entities matched
+        2. Relevance to remaining unresolved (entity, attribute) claims
+        3. Temporal priority (favoring higher page numbers if question requests revised/current info)
+        """
+        unresolved_claims = state.get_unresolved_claims()
+        unresolved_entities = {ent.lower() for ent, _ in unresolved_claims}
+        unresolved_attributes = {attr.lower() for _, attr in unresolved_claims}
+
+        best_page = None
+        best_score = -999999.0
+
+        for page in unretrieved:
+            matched_kws = state.page_keyword_map.get(page, set())
+            score = float(len(matched_kws)) * 2.0
+
+            # Entity relevance bonus
+            for kw in matched_kws:
+                if kw in unresolved_entities or any(kw in ent for ent in unresolved_entities):
+                    score += 5.0
+                if kw in unresolved_attributes or any(kw in attr for attr in unresolved_attributes):
+                    score += 3.0
+
+            # Temporal weighting (later pages scored slightly higher when updated policy requested)
+            if is_temporal:
+                score += float(page) * 0.1
+
+            if score > best_score:
+                best_score = score
+                best_page = page
+
+        return best_page or (unretrieved[0] if unretrieved else None)
+
+    def _update_matrix_coverage(self, state: AgentState, page_text: str):
+        """Updates ENTITY x ATTRIBUTE matrix coverage based on extracted page text."""
+        text_lower = page_text.lower()
+        for ent, attrs in state.coverage.items():
+            ent_lower = ent.lower()
+            if ent_lower in text_lower or any(part in text_lower for part in ent_lower.split() if len(part) >= 4):
+                for attr, status in attrs.items():
+                    if status == "NOT_ESTABLISHED":
+                        attr_lower = attr.lower()
+                        if attr_lower in text_lower or any(part in text_lower for part in attr_lower.split() if len(part) >= 4):
+                            state.update_claim_coverage(ent, attr, "SUPPORTED")

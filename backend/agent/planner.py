@@ -40,12 +40,17 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
         # Populate state
         state.intent = plan_data.get("intent", "factual")
         state.entities = plan_data.get("entities", [])
+        state.attributes = plan_data.get("attributes", [])
         state.keywords = plan_data.get("keywords", [])
         state.likely_headings = plan_data.get("likely_headings", [])
         state.temporal_requirement = plan_data.get("temporal_requirement")
-        state.strategy = plan_data.get("strategy", "heading_then_keyword_then_page")
+        state.strategy = plan_data.get("strategy", "keyword_then_page")
 
-        summary = f"Plan: intent={state.intent}, keywords={state.keywords}, headings={state.likely_headings}"
+        # Initialize coverage matrix if entities and attributes exist
+        if state.entities and state.attributes:
+            state.init_coverage_matrix(state.entities, state.attributes)
+
+        summary = f"Plan: intent={state.intent}, entities={state.entities}, attributes={state.attributes}, keywords={state.keywords}"
         logger.record(
             call_number=call_num,
             call_type="llm_planning",
@@ -59,21 +64,71 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
         return plan_data
 
     except Exception as exc:
-        # Fallback plan if LLM failed
-        fallback_keywords = [w for w in re.findall(r'\b\w{3,}\b', state.question.lower()) if w not in {"what", "when", "how", "the", "and"}][:3]
-        state.keywords = fallback_keywords
+        # Robust deterministic fallback populating ALL AgentState fields
+        q_lower = state.question.lower()
+        
+        # 1. Intent & Temporal Requirement
+        is_comparison = "compare" in q_lower or "versus" in q_lower or " vs " in q_lower or "difference" in q_lower
+        is_temporal = any(w in q_lower for w in ["latest", "current", "update", "new", "revised", "amended"])
+        
+        state.intent = "comparison" if is_comparison else ("policy_temporal" if is_temporal else "factual")
+        state.temporal_requirement = "latest" if is_temporal else None
+        state.strategy = "keyword_then_page"
+
+        # 2. Extract Entities & Attributes
+        words = re.findall(r'\b[a-zA-Z0-9_\-]{3,}\b', q_lower)
+        stopwords = {
+            "what", "when", "where", "which", "who", "whom", "this", "that", "these",
+            "those", "does", "did", "have", "has", "had", "the", "and", "for", "with",
+            "about", "document", "tell", "explain", "find", "how", "many", "much", "compare", "terms"
+        }
+        filtered = [w for w in words if w not in stopwords]
+        
+        # Extract potential technical entities and attributes
+        state.keywords = filtered
+        if is_comparison and "terms" in q_lower:
+            parts = re.split(r'\bterms of\b', q_lower)
+            ent_part = parts[0]
+            attr_part = parts[1] if len(parts) > 1 else ""
+            state.entities = [w.strip() for w in re.split(r'[,|and]', ent_part) if len(w.strip()) > 2 and w.strip() not in stopwords]
+            state.attributes = [w.strip() for w in re.split(r'[,|and]', attr_part) if len(w.strip()) > 2 and w.strip() not in stopwords]
+        else:
+            state.entities = filtered[:3]
+            state.attributes = filtered[3:6]
+
+        state.likely_headings = []
+        if any(w in q_lower for w in ["refund", "cancel", "money"]):
+            state.likely_headings.append("Refund Policy")
+        if any(w in q_lower for w in ["grade", "exam", "syllabus", "course"]):
+            state.likely_headings.append("Course Grading")
+
+        # Initialize coverage matrix for fallback
+        if state.entities and state.attributes:
+            state.init_coverage_matrix(state.entities, state.attributes)
+
+        fallback_plan = {
+            "intent": state.intent,
+            "entities": state.entities,
+            "attributes": state.attributes,
+            "keywords": state.keywords,
+            "likely_headings": state.likely_headings,
+            "temporal_requirement": state.temporal_requirement,
+            "strategy": state.strategy,
+            "reason": f"Fallback planner executed safely ({str(exc)})",
+        }
+
         logger.record(
             call_number=call_num,
             call_type="llm_planning",
             tool_name="LLM_Planner",
             arguments={"question": state.question},
-            result_summary=f"Fallback used: {str(exc)}",
+            result_summary=f"Fallback planner used: {str(exc)}",
             start_time=start_time,
             success=False,
             error=str(exc),
             budget_remaining=budget.remaining,
         )
-        return {"intent": "factual", "keywords": fallback_keywords, "likely_headings": []}
+        return fallback_plan
 
 
 def _parse_json_safely(text: str) -> dict[str, Any]:

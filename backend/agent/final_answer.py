@@ -44,6 +44,14 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
     evidence_blocks = []
     for item in state.evidence:
         evidence_blocks.append(f"--- Page {item.page_number} ---\n{item.content.strip()}")
+    
+    if state.coverage:
+        matrix_lines = ["\nEVIDENCE COVERAGE MATRIX:"]
+        for ent, attrs in state.coverage.items():
+            for attr, st in attrs.items():
+                matrix_lines.append(f"  • {ent} -> {attr}: {st}")
+        evidence_blocks.append("\n".join(matrix_lines))
+
     evidence_text = "\n\n".join(evidence_blocks)
 
     call_trace = logger.get_trace_summary()

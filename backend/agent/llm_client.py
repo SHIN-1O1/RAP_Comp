@@ -48,45 +48,36 @@ def call_llm(
     if _gemini_client and (LLM_PROVIDER in ["gemini", "auto"]):
         use_model = model or LLM_MODEL or "gemini-3.5-flash"
         contents = f"System: {system_prompt}\n\nUser: {user_prompt}"
-        
-        # Try requested model with automatic fallback to alternate valid Gemini models if needed
-        candidate_models = [use_model]
-        for fallback in ["gemini-3.5-flash", "gemini-3.8-flash"]:
-            if fallback not in candidate_models:
-                candidate_models.append(fallback)
-
-        last_error = None
-        for m in candidate_models:
-            try:
-                response = _gemini_client.models.generate_content(
-                    model=m,
-                    contents=contents,
-                    config={"temperature": temperature}
-                )
-                if response and response.text:
-                    return response.text
-            except Exception as exc:
-                last_error = exc
-                continue
-
-        if last_error:
-            # Fall back to rule-based fallback if API quota or rate limits hit
+        try:
+            response = _gemini_client.models.generate_content(
+                model=use_model,
+                contents=contents,
+                config={"temperature": temperature}
+            )
+            if response and response.text:
+                return response.text
+        except Exception:
+            # Fall back to local rule-based engine without making another API call
             return _rule_based_fallback(system_prompt, user_prompt)
 
     # 2. Try OpenAI
     if _openai_client and (LLM_PROVIDER in ["openai", "auto"]):
         use_model = model or LLM_MODEL or "gpt-4o-mini"
-        response = _openai_client.chat.completions.create(
-            model=use_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=temperature,
-        )
-        return response.choices[0].message.content or ""
+        try:
+            response = _openai_client.chat.completions.create(
+                model=use_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+            )
+            if response and response.choices and response.choices[0].message.content:
+                return response.choices[0].message.content
+        except Exception:
+            return _rule_based_fallback(system_prompt, user_prompt)
 
-    # 3. Fallback Mock / Rule-Based Mode (useful for offline evaluation or unit tests)
+    # 3. Fallback Mock / Rule-Based Mode
     return _rule_based_fallback(system_prompt, user_prompt)
 
 
