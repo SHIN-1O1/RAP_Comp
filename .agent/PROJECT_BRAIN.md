@@ -33,6 +33,7 @@ Code-governed asymmetric architecture: 1 Planning LLM Call (Question Analysis & 
   - Synchronized with GitHub repository: `https://github.com/SHIN-1O1/RAP_Comp`.
 
 ## Active Modules
+- `backend/retrieval/`: Local Lexical Chunk Store (`chunker.py`, `chunk_store.py`, `lexical_retriever.py`) for candidate page discovery.
 - `backend/agent/budget.py`: Unified 6-call pre-final budget manager.
 - `backend/agent/logger.py`: Call recorder and trace summarizer.
 - `backend/agent/planner.py`: Question analysis, intent classification, broad overview detection, and coverage matrix initialization.
@@ -41,6 +42,7 @@ Code-governed asymmetric architecture: 1 Planning LLM Call (Question Analysis & 
 - `backend/agent/llm_client.py`: Multi-provider LLM client with secret-safe runtime observability and instant local fallback.
 - `backend/tools/document_tools.py` & `tool_wrapper.py`: 4 prescribed tools with strict budget consumption and argument validation.
 - `frontend/src/`: React + TypeScript SPA with CallTrace, BudgetGauge, and EvidenceList.
+
 
 ## Known Edge Cases & Mitigations
 1. **Quota / Rate Limits (429)**: Gracefully switches to local deterministic rule-based engine on the very first failure with zero retries. Trace displays `mode="rule_based_fallback"` and reason `quota / rate limit exceeded (429)`.

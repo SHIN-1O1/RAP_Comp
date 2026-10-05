@@ -32,6 +32,15 @@
 - [x] Updated all `.agent/` project brain files (`ARCHITECTURE.md`, `CONSTRAINTS.md`, `CURRENT_STATE.md`, `DECISIONS.md`, `PROJECT_BRAIN.md`, `SESSION_LOG.md`, `TEST_STATUS.md`, `TODO.md`)
 - [x] Created `HANDOVER.md` for seamless successor agent onboarding
 
+## P3: Local Lexical Chunk Store & Candidate Discovery (Zero Vector DBs)
+- [x] Implement deterministic sliding word-window chunker (`CHUNK_SIZE=550`, `CHUNK_OVERLAP=75`, page provenance, Unicode NFKD normalization)
+- [x] Implement deterministic prompt injection detector in chunking metadata (`suspicious_instruction`)
+- [x] Implement local JSON chunk store (`ChunkStore`) scoped by `doc_id` and SHA256 content hash with cross-document isolation and stale-index protection
+- [x] Implement pure Python BM25 / TF-IDF lexical retriever with English root stemming, phrase matching, and entity × attribute co-occurrence bonuses
+- [x] Integrate local chunk retrieval into `controller.py` candidate page discovery and `main.py` upload-time indexing
+- [x] Add comprehensive 12-test retrieval suite in `test_retrieval.py` and verify full 34/34 test regression suite passing 100%
+
+
 ## Operational Runbook
 - Ensure `.env` has valid `GEMINI_API_KEY` or `OPENAI_API_KEY` (system seamlessly falls back to local rule-based engine if keys are missing or 429 quota is hit).
 - Backend server: `py -3.14 -m uvicorn backend.main:app --port 8000 --reload`
