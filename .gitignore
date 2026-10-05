@@ -23,3 +23,7 @@ frontend/dist/
 
 # Test generated artifacts
 data/documents/test_eval_cases.pdf
+
+# Workspace agent cache
+.agents
+
