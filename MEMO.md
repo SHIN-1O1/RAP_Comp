@@ -112,62 +112,80 @@ flowchart TD
     OUTPUT --> FE
 ```
 
-### Fallback ASCII Execution Diagram
+### Presentation ASCII Architecture Diagram
 
 ```text
-+-------------------------------------------------------------------------------+
-|                                  USER LAYER                                   |
-|   React SPA: PDF Upload | Question Input | 6-Call Gauge | Evidence | Trace    |
-+---------------------------------------+---------------------------------------+
-                                        | HTTP REST POST /api/ask
-+---------------------------------------v---------------------------------------+
-|                               FASTAPI BACKEND                                 |
-|   /api/upload (PDF Ingest + SHA256) | /api/documents | /api/ask               |
-+---------------------------------------+---------------------------------------+
-                                        | Controller.run(doc_id, question)
-+---------------------------------------v---------------------------------------+
-|                        DETERMINISTIC PYTHON HARNESS                           |
-|  * CallBudget(max_calls=6): Consumes BEFORE execution. Call 7 raises error.   |
-|  * Tool Allowlist: Only list_documents, list_headings, search_keyword, get_page|
-|  * AgentState: Maintains Entity x Attribute matrix & Evidence Store           |
-+---------------------------------------+---------------------------------------+
-                                        | Call 1 (Budget = 1/6)
-+---------------------------------------v---------------------------------------+
-|                    CALL 1: LLM PLANNER (Reasoning Only)                       |
-|   Extracts: Intent, Entities, Attributes, Keywords, Headings, Strategy        |
-|   (Fallback: Deterministic regex taxonomy on API timeout/failure)             |
-+---------------------------------------+---------------------------------------+
-                                        | Structured Plan (No Direct Tool Exec)
-+---------------------------------------v---------------------------------------+
-|       LOCAL LEXICAL RETRIEVAL (Candidate Discovery -- Zero Budget Cost)       |
-|   Local Chunks (~550w / 75w overlap) -> BM25 + Stemming + Co-occurrence       |
-|   * CANDIDATE DISCOVERY ONLY -- NOT FINAL EVIDENCE *                          |
-+---------------------------------------+---------------------------------------+
-                                        | Candidate Pages Queue [p4, p12, ...]
-+---------------------------------------v---------------------------------------+
-|                     PRESCRIBED DOCUMENT RETRIEVAL                             |
-|   * Step A: list_headings(doc_id)    [Consumes 1 call] -> Section map         |
-|   * Step B: search_keyword(doc_id)   [Consumes 1 call] -> Page numbers only   |
-|   * Step C: get_page(doc_id, page)   [Consumes 1 call] -> Raw Page Text       |
-|   * AUTHORITATIVE EVIDENCE: Extracted strictly via get_page()                 |
-+---------------------------------------+---------------------------------------+
-                                        | Raw Page Extractions
-+---------------------------------------v---------------------------------------+
-|                     EVIDENCE & COVERAGE GOVERNANCE                            |
-|   * Updates Entity x Attribute Matrix (SUPPORTED / NOT_ESTABLISHED)           |
-|   * Deterministic Relevance Gate verifies target entities and claims          |
-|   * Halts early when claims covered; stops at Budget = 6/6                    |
-+---------------------------------------+---------------------------------------+
-                                        | Evidence Blocks + Trace
-+---------------------------------------v---------------------------------------+
-|                 ONE FINAL ANSWER CALL (Separate from 6-Call Budget)           |
-|   * Evaluates retrieved text, temporal supersession, and contradictions       |
-|   * Synthesizes answer citing source pages OR outputs 'Insufficient info'     |
-+---------------------------------------+---------------------------------------+
-                                        | Grounded Output + Full Audit Trace
-+---------------------------------------v---------------------------------------+
-|   CLIENT RESPONSE: Final Answer + Evidence Provenance + Observability Trace   |
-+-------------------------------------------------------------------------------+
+                         ┌─────────────────┐
+                         │      USER       │
+                         │ PDF + QUESTION  │
+                         └────────┬────────┘
+                                  │
+                                  ▼
+                         ┌─────────────────┐
+                         │ REACT + FASTAPI │
+                         └────────┬────────┘
+                                  │
+                                  ▼
+             ╔══════════════════════════════════════╗
+             ║       DETERMINISTIC HARNESS          ║
+             ║                                      ║
+             ║  Budget ≤ 6  │  Tool Control        ║
+             ║  AgentState  │  Coverage │ Logging  ║
+             ╚══════════════════╤═══════════════════╝
+                                │
+                    ┌───────────▼───────────┐
+                    │      LLM PLANNER      │
+                    │ Intent / Entities     │
+                    │ Attributes / Strategy │
+                    └───────────┬───────────┘
+                                │
+                                ▼
+                    ┌────────────────────────┐
+                    │ ENTITY × ATTRIBUTE     │
+                    │       COVERAGE         │
+                    └───────────┬────────────┘
+                                │
+                 ┌──────────────┴──────────────┐
+                 ▼                             ▼
+       ┌───────────────────┐        ┌─────────────────────┐
+       │ LOCAL LEXICAL     │        │ PRESCRIBED TOOLS    │
+       │ CANDIDATE SEARCH  │───────►│ search / headings   │
+       │                   │        │ get_page()          │
+       │ NOT EVIDENCE      │        └──────────┬──────────┘
+       └───────────────────┘                   │
+                                               ▼
+                                    ┌─────────────────────┐
+                                    │  AUTHORITATIVE      │
+                                    │      EVIDENCE       │
+                                    └──────────┬──────────┘
+                                               │
+                                               ▼
+                                    ┌─────────────────────┐
+                                    │   EVIDENCE STORE    │
+                                    │ ✓ Supported         │
+                                    │ ✗ Contradicted      │
+                                    │ ? Not established   │
+                                    │ ↻ Superseded        │
+                                    └──────────┬──────────┘
+                                               │
+                                               ▼
+                                    ┌─────────────────────┐
+                                    │   FINAL ANSWER LLM  │
+                                    │   ONE FINAL CALL    │
+                                    └──────────┬──────────┘
+                                               │
+                              ┌────────────────┴───────────────┐
+                              ▼                                ▼
+                     ┌─────────────────┐              ┌──────────────────┐
+                     │ VERIFIED ANSWER │              │   INSUFFICIENT   │
+                     │ + EVIDENCE      │              │   INFORMATION   │
+                     └─────────────────┘              └──────────────────┘
+
+                 ─────────────────────────────────────
+                  LLM = REASONING
+                  PYTHON = CONTROL
+                  6 PRE-FINAL + 1 FINAL CALL
+                 ─────────────────────────────────────
 ```
 
 ---
