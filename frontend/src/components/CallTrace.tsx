@@ -11,6 +11,15 @@ export const CallTrace: React.FC<Props> = ({ trace, maxCalls = 6 }) => {
     return null;
   }
 
+  const getDisplayName = (record: CallRecord) => {
+    if (record.call_type === 'final_answer') return 'Final Answer';
+    if (record.call_type === 'llm_planning') return 'LLM Planner';
+    if (record.tool_name === 'search_keyword') return 'Document Search';
+    if (record.tool_name === 'get_page') return 'Document Page';
+    if (record.tool_name === 'list_headings') return 'Document Headings';
+    return record.tool_name;
+  };
+
   return (
     <div className="glass-panel" style={{ padding: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
@@ -26,91 +35,139 @@ export const CallTrace: React.FC<Props> = ({ trace, maxCalls = 6 }) => {
         {trace.map((record, idx) => {
           const isFinal = record.call_type === 'final_answer';
           const isError = !record.success;
+          const meta = record.llm_metadata;
+          const provName = meta ? (meta.provider === 'gemini' ? 'Gemini API' : meta.provider === 'openai' ? 'OpenAI API' : 'Local') : null;
+          const modeName = meta ? (meta.mode === 'api' ? 'API' : meta.mode) : null;
 
           return (
             <div
               key={idx}
               style={{
-                display: 'grid',
-                gridTemplateColumns: '90px 140px 1fr 90px',
-                gap: '12px',
-                alignItems: 'center',
-                padding: '10px 14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                padding: '12px 16px',
                 borderRadius: 'var(--radius-sm)',
                 background: isFinal
-                  ? 'rgba(168, 85, 247, 0.1)'
+                  ? 'rgba(168, 85, 247, 0.08)'
                   : isError
                   ? 'var(--danger-bg)'
-                  : 'rgba(10, 13, 20, 0.5)',
+                  : 'rgba(10, 13, 20, 0.6)',
                 border: `1px solid ${
                   isFinal
-                    ? 'rgba(168, 85, 247, 0.3)'
+                    ? 'rgba(168, 85, 247, 0.35)'
                     : isError
-                    ? 'rgba(239, 68, 68, 0.3)'
+                    ? 'rgba(239, 68, 68, 0.4)'
                     : 'var(--border-subtle)'
                 }`,
                 fontSize: '13px',
               }}
             >
-              {/* Call Number / Badge */}
-              <div>
-                {isFinal ? (
+              {/* Header: Title + Badge + Duration */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{
                     fontSize: '11px',
                     fontWeight: 700,
                     padding: '2px 8px',
                     borderRadius: '4px',
-                    background: 'var(--primary-gradient)',
-                    color: '#fff',
+                    background: isFinal ? 'var(--primary-gradient)' : 'var(--bg-secondary)',
+                    color: isFinal ? '#fff' : 'var(--text-muted)',
+                    border: isFinal ? 'none' : '1px solid var(--border-subtle)',
                     textTransform: 'uppercase',
                   }}>
-                    FINAL
+                    {isFinal ? 'FINAL ANSWER' : `Call ${record.call_number}/${maxCalls}`}
                   </span>
-                ) : (
-                  <span style={{
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    background: 'var(--bg-secondary)',
-                    color: 'var(--text-muted)',
-                    border: '1px solid var(--border-subtle)',
-                  }}>
-                    Call {record.call_number}/{maxCalls}
+                  <span style={{ fontWeight: 600, fontSize: '14px', color: isFinal ? '#c084fc' : 'var(--text-main)', fontFamily: 'monospace' }}>
+                    {getDisplayName(record)}
                   </span>
-                )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: 'var(--accent-cyan)', fontSize: '12px', fontFamily: 'monospace' }}>
+                    {record.duration_ms} ms
+                  </span>
+                  {!isFinal && (
+                    <span style={{ fontSize: '11px', color: 'var(--text-dim)', background: 'rgba(255,255,255,0.05)', padding: '1px 6px', borderRadius: '3px' }}>
+                      rem: {record.budget_remaining}
+                    </span>
+                  )}
+                </div>
               </div>
 
-              {/* Tool / Component Name */}
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <span style={{ fontWeight: 600, color: isFinal ? '#c084fc' : 'var(--text-main)', fontFamily: 'monospace' }}>
-                  {record.tool_name}
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-dim)' }}>
-                  {record.call_type}
-                </span>
-              </div>
+              {/* Body: Structured Metadata fields */}
+              {meta ? (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '3px',
+                  background: 'rgba(0, 0, 0, 0.25)',
+                  padding: '8px 12px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontFamily: 'monospace'
+                }}>
+                  <div>
+                    <span style={{ color: 'var(--text-dim)' }}>Provider: </span>
+                    <strong style={{ color: meta.provider === 'local' ? '#fbbf24' : '#34d399' }}>
+                      {provName}
+                    </strong>
+                  </div>
+                  {meta.model && (
+                    <div>
+                      <span style={{ color: 'var(--text-dim)' }}>Model: </span>
+                      <span style={{ color: 'var(--text-muted)' }}>{meta.model}</span>
+                    </div>
+                  )}
+                  <div>
+                    <span style={{ color: 'var(--text-dim)' }}>Mode: </span>
+                    <span style={{
+                      color: meta.mode === 'api' ? '#34d399' : '#fbbf24',
+                      fontWeight: 600,
+                    }}>
+                      {modeName}
+                    </span>
+                  </div>
+                  {meta.reason && (
+                    <div>
+                      <span style={{ color: '#f87171' }}>Reason: </span>
+                      <span style={{ color: '#fca5a5' }}>{meta.reason}</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '3px',
+                  background: 'rgba(0, 0, 0, 0.25)',
+                  padding: '8px 12px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontFamily: 'monospace'
+                }}>
+                  <div>
+                    <span style={{ color: 'var(--text-dim)' }}>Tool: </span>
+                    <span style={{ color: 'var(--accent-cyan)' }}>{record.tool_name}</span>
+                  </div>
+                  {record.arguments?.keyword && (
+                    <div>
+                      <span style={{ color: 'var(--text-dim)' }}>Query: </span>
+                      <span style={{ color: 'var(--text-main)' }}>{record.arguments.keyword}</span>
+                    </div>
+                  )}
+                  {record.arguments?.page_number !== undefined && (
+                    <div>
+                      <span style={{ color: 'var(--text-dim)' }}>Page: </span>
+                      <span style={{ color: 'var(--text-main)' }}>{record.arguments.page_number}</span>
+                    </div>
+                  )}
+                </div>
+              )}
 
-              {/* Summary & Args */}
-              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <span style={{ color: 'var(--text-muted)' }}>{record.result_summary}</span>
-                {Object.keys(record.arguments || {}).length > 0 && (
-                  <span style={{ color: 'var(--text-dim)', marginLeft: '8px', fontSize: '11px', fontFamily: 'monospace' }}>
-                    {JSON.stringify(record.arguments)}
-                  </span>
-                )}
-              </div>
-
-              {/* Latency & Budget */}
-              <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column' }}>
-                <span style={{ color: 'var(--accent-cyan)', fontSize: '12px', fontFamily: 'monospace' }}>
-                  {record.duration_ms} ms
-                </span>
-                {!isFinal && (
-                  <span style={{ fontSize: '10px', color: 'var(--text-dim)' }}>
-                    rem: {record.budget_remaining}
-                  </span>
-                )}
+              {/* Result Summary */}
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                {record.result_summary}
               </div>
             </div>
           );

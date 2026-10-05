@@ -15,6 +15,7 @@ class CallRecord:
     success: bool
     error: Optional[str] = None
     budget_remaining: int = 0
+    llm_metadata: Optional[dict[str, Any]] = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -41,6 +42,7 @@ class CallLogger:
         success: bool = True,
         error: Optional[str] = None,
         budget_remaining: int = 0,
+        llm_metadata: Optional[dict[str, Any]] = None,
     ) -> CallRecord:
         now = time.time()
         duration_ms = round((now - start_time) * 1000, 2)
@@ -55,6 +57,7 @@ class CallLogger:
             success=success,
             error=error,
             budget_remaining=budget_remaining,
+            llm_metadata=llm_metadata,
         )
         self.records.append(rec)
         return rec
@@ -65,8 +68,20 @@ class CallLogger:
     def get_trace_summary(self) -> str:
         lines = []
         for r in self.records:
-            if r.call_type == "final_answer":
-                lines.append(f"[FINAL ANSWER] {r.tool_name} ({r.duration_ms}ms) -> {r.result_summary}")
+            prefix = "[FINAL ANSWER]" if r.call_type == "final_answer" else f"[Call {r.call_number}/6] ({r.call_type})"
+            if r.llm_metadata:
+                prov_raw = r.llm_metadata.get("provider", "local")
+                prov = "Gemini API" if prov_raw == "gemini" else ("OpenAI API" if prov_raw == "openai" else "Local")
+                mode = r.llm_metadata.get("mode")
+                model = r.llm_metadata.get("model")
+                reason = r.llm_metadata.get("reason")
+                parts = [f"Provider: {prov}", f"Mode: {mode}"]
+                if model:
+                    parts.append(f"Model: {model}")
+                if reason:
+                    parts.append(f"Reason: {reason}")
+                meta_str = " | ".join(parts)
+                lines.append(f"{prefix} {r.tool_name} [{meta_str}] -> {r.result_summary}")
             else:
-                lines.append(f"[Call {r.call_number}/6] ({r.call_type}) {r.tool_name}{r.arguments} -> {r.result_summary} (rem: {r.budget_remaining})")
+                lines.append(f"{prefix} {r.tool_name}{r.arguments} -> {r.result_summary} (rem: {r.budget_remaining})")
         return "\n".join(lines)

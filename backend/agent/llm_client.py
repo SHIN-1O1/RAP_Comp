@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from dataclasses import dataclass
 from typing import Optional, Any
 from backend.config import (
     GEMINI_API_KEY,
@@ -14,24 +15,216 @@ from backend.config import (
 _gemini_client = None
 _openai_client = None
 
-if GEMINI_API_KEY:
+
+@dataclass
+class LLMCallMetadata:
+    """Explicit runtime observability for an LLM invocation."""
+    provider: str  # "gemini" | "openai" | "local"
+    model: Optional[str] = None
+    mode: str = "rule_based_fallback"  # "api" | "rule_based_fallback"
+    error: Optional[str] = None
+    reason: Optional[str] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "provider": self.provider,
+            "model": self.model,
+            "mode": self.mode,
+        }
+        if self.error:
+            d["error"] = self.error
+        if self.reason:
+            d["reason"] = self.reason
+        return d
+
+
+def sanitize_api_error(exc: Exception, provider: str) -> str:
+    """
+    Sanitizes API exception messages to prevent secret/key leakage.
+    Returns a clean, high-level summary suitable for UI trace.
+    """
+    exc_str = str(exc)
+    exc_type = type(exc).__name__
+    exc_lower = exc_str.lower()
+
+    if "429" in exc_str or "resource_exhausted" in exc_lower or "quota" in exc_lower:
+        return f"{provider} API request failed: quota / rate limit exceeded (429)"
+    elif "401" in exc_str or "403" in exc_str or "unauthenticated" in exc_lower or "permission_denied" in exc_lower or "api key" in exc_lower:
+        return f"{provider} API request failed: authentication failed (401/403)"
+    elif "timeout" in exc_lower or "timed out" in exc_lower or "deadline" in exc_lower:
+        return f"{provider} API request failed: request timeout"
+    elif "connection" in exc_lower or "unreachable" in exc_lower:
+        return f"{provider} API request failed: network connection failed"
+    else:
+        # Strip potential query parameter or key string
+        clean_msg = re.sub(r'(?:key|token|auth|secret)[=:][\w\.\-]+', 'key=***', exc_str, flags=re.IGNORECASE)
+        clean_msg = clean_msg.split('\n')[0][:80]
+        return f"{provider} API request failed: {exc_type}"
+
+
+_gemini_client = None
+_gemini_override = False
+_openai_client = None
+_openai_override = False
+
+
+def get_gemini_client():
+    global _gemini_client, _gemini_override
+    if _gemini_override:
+        return _gemini_client
+    if _gemini_client is not None:
+        return _gemini_client
+    key = os.environ.get("GEMINI_API_KEY") if "GEMINI_API_KEY" in os.environ else GEMINI_API_KEY
+    if not key:
+        return None
     try:
         from google import genai
-        _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        _gemini_client = genai.Client(api_key=key)
     except Exception:
         _gemini_client = None
+    return _gemini_client
 
-if OPENAI_API_KEY:
+
+def set_gemini_client(client):
+    global _gemini_client, _gemini_override
+    _gemini_client = client
+    _gemini_override = True
+
+
+def reset_gemini_client():
+    global _gemini_client, _gemini_override
+    _gemini_client = None
+    _gemini_override = False
+
+
+def get_openai_client():
+    global _openai_client, _openai_override
+    if _openai_override:
+        return _openai_client
+    if _openai_client is not None:
+        return _openai_client
+    key = os.environ.get("OPENAI_API_KEY") if "OPENAI_API_KEY" in os.environ else OPENAI_API_KEY
+    base_url = os.environ.get("OPENAI_BASE_URL") if "OPENAI_BASE_URL" in os.environ else OPENAI_BASE_URL
+    if not key:
+        return None
     try:
         from openai import OpenAI
-        kwargs: dict[str, Any] = {"api_key": OPENAI_API_KEY}
-        if OPENAI_BASE_URL:
-            kwargs["base_url"] = OPENAI_BASE_URL
-        # Set max_retries to 0 to prevent hidden retries that bypass budget
-        kwargs["max_retries"] = 0
+        kwargs: dict[str, Any] = {"api_key": key, "max_retries": 0}
+        if base_url:
+            kwargs["base_url"] = base_url
         _openai_client = OpenAI(**kwargs)
     except Exception:
         _openai_client = None
+    return _openai_client
+
+
+def set_openai_client(client):
+    global _openai_client, _openai_override
+    _openai_client = client
+    _openai_override = True
+
+
+def reset_openai_client():
+    global _openai_client, _openai_override
+    _openai_client = None
+    _openai_override = False
+
+
+def call_llm_with_metadata(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0.0,
+    model: Optional[str] = None,
+) -> tuple[str, LLMCallMetadata]:
+    """
+    Invokes the configured LLM without hidden retries.
+    Returns (response_text, LLMCallMetadata).
+    Distinguishes actual API execution vs local deterministic fallback.
+    """
+    gemini_client = get_gemini_client()
+    provider_setting = os.getenv("LLM_PROVIDER", LLM_PROVIDER)
+
+    # 1. Try Gemini
+    if gemini_client and (provider_setting in ["gemini", "auto"]):
+        use_model = model or os.getenv("LLM_MODEL", LLM_MODEL) or "gemini-3.5-flash"
+        contents = f"System: {system_prompt}\n\nUser: {user_prompt}"
+        try:
+            response = gemini_client.models.generate_content(
+                model=use_model,
+                contents=contents,
+                config={"temperature": temperature}
+            )
+            if response and response.text:
+                meta = LLMCallMetadata(
+                    provider="gemini",
+                    model=use_model,
+                    mode="api",
+                )
+                return response.text, meta
+            else:
+                fallback_reason = "Gemini API returned empty response"
+                error_type = "empty_response"
+        except Exception as exc:
+            fallback_reason = sanitize_api_error(exc, "Gemini")
+            error_type = type(exc).__name__
+
+        # Single attempt: fall back to local rule-based engine without making another API call
+        fallback_text = _rule_based_fallback(system_prompt, user_prompt)
+        meta = LLMCallMetadata(
+            provider="local",
+            model=None,
+            mode="rule_based_fallback",
+            error=error_type,
+            reason=fallback_reason,
+        )
+        return fallback_text, meta
+
+    # 2. Try OpenAI
+    openai_client = get_openai_client()
+    if openai_client and (provider_setting in ["openai", "auto"]):
+        use_model = model or os.getenv("LLM_MODEL", LLM_MODEL) or "gpt-4o-mini"
+        try:
+            response = openai_client.chat.completions.create(
+                model=use_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+            )
+            if response and response.choices and response.choices[0].message.content:
+                meta = LLMCallMetadata(
+                    provider="openai",
+                    model=use_model,
+                    mode="api",
+                )
+                return response.choices[0].message.content, meta
+            else:
+                fallback_reason = "OpenAI API returned empty response"
+                error_type = "empty_response"
+        except Exception as exc:
+            fallback_reason = sanitize_api_error(exc, "OpenAI")
+            error_type = type(exc).__name__
+
+        fallback_text = _rule_based_fallback(system_prompt, user_prompt)
+        meta = LLMCallMetadata(
+            provider="local",
+            model=None,
+            mode="rule_based_fallback",
+            error=error_type,
+            reason=fallback_reason,
+        )
+        return fallback_text, meta
+
+    # 3. Fallback Mock / Rule-Based Mode (No API key configured)
+    fallback_text = _rule_based_fallback(system_prompt, user_prompt)
+    meta = LLMCallMetadata(
+        provider="local",
+        model=None,
+        mode="rule_based_fallback",
+        reason="No API key configured",
+    )
+    return fallback_text, meta
 
 
 def call_llm(
@@ -41,44 +234,10 @@ def call_llm(
     model: Optional[str] = None,
 ) -> str:
     """
-    Invokes the configured LLM without hidden retries.
-    Supports Gemini, OpenAI-compatible, or deterministic fallback if no keys configured.
+    Standard backward-compatible entry point returning just the response text.
     """
-    # 1. Try Gemini
-    if _gemini_client and (LLM_PROVIDER in ["gemini", "auto"]):
-        use_model = model or LLM_MODEL or "gemini-3.5-flash"
-        contents = f"System: {system_prompt}\n\nUser: {user_prompt}"
-        try:
-            response = _gemini_client.models.generate_content(
-                model=use_model,
-                contents=contents,
-                config={"temperature": temperature}
-            )
-            if response and response.text:
-                return response.text
-        except Exception:
-            # Fall back to local rule-based engine without making another API call
-            return _rule_based_fallback(system_prompt, user_prompt)
-
-    # 2. Try OpenAI
-    if _openai_client and (LLM_PROVIDER in ["openai", "auto"]):
-        use_model = model or LLM_MODEL or "gpt-4o-mini"
-        try:
-            response = _openai_client.chat.completions.create(
-                model=use_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=temperature,
-            )
-            if response and response.choices and response.choices[0].message.content:
-                return response.choices[0].message.content
-        except Exception:
-            return _rule_based_fallback(system_prompt, user_prompt)
-
-    # 3. Fallback Mock / Rule-Based Mode
-    return _rule_based_fallback(system_prompt, user_prompt)
+    text, _ = call_llm_with_metadata(system_prompt, user_prompt, temperature, model)
+    return text
 
 
 def _rule_based_fallback(system_prompt: str, user_prompt: str) -> str:

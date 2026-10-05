@@ -27,6 +27,13 @@ export interface CallRecord {
   success: boolean;
   error?: string;
   budget_remaining: number;
+  llm_metadata?: {
+    provider: string;
+    model?: string | null;
+    mode: string;
+    reason?: string;
+    error?: string;
+  };
 }
 
 export interface AskResponse {
@@ -40,4 +47,7 @@ export interface AskResponse {
   budget_remaining: number;
   trace: CallRecord[];
   trace_summary: string;
+  llm_calls?: Record<string, any>[];
+  planner_llm_metadata?: Record<string, any>;
+  final_llm_metadata?: Record<string, any>;
 }

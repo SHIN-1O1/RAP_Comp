@@ -5,7 +5,7 @@ from backend.agent.state import AgentState
 from backend.agent.logger import CallLogger
 from backend.agent.prompts import FINAL_ANSWER_SYSTEM_PROMPT, FINAL_ANSWER_USER_PROMPT
 from backend.agent.planner import DISALLOWED_STANDALONE_WORDS
-from backend.agent.llm_client import call_llm
+from backend.agent.llm_client import call_llm, call_llm_with_metadata, LLMCallMetadata
 
 
 def evaluate_claim_in_text(ent: str, attr: str, text: str) -> bool:
@@ -143,6 +143,13 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
         state.final_answer = answer
         state.final_answer_generated = True
         state.status = "COMPLETED"
+        llm_meta = LLMCallMetadata(
+            provider="local",
+            model=None,
+            mode="rule_based_fallback",
+            reason="Empty evidence store",
+        )
+        state.record_llm_call("final_answer", llm_meta.to_dict())
 
         logger.record(
             call_number=0,
@@ -153,6 +160,7 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
             start_time=start_time,
             success=True,
             budget_remaining=0,
+            llm_metadata=llm_meta.to_dict(),
         )
         return answer
 
@@ -163,6 +171,13 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
         state.final_answer = answer
         state.final_answer_generated = True
         state.status = "COMPLETED"
+        llm_meta = LLMCallMetadata(
+            provider="local",
+            model=None,
+            mode="rule_based_fallback",
+            reason=f"Relevance gate: {gate_reason}",
+        )
+        state.record_llm_call("final_answer", llm_meta.to_dict())
 
         logger.record(
             call_number=0,
@@ -173,6 +188,7 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
             start_time=start_time,
             success=True,
             budget_remaining=0,
+            llm_metadata=llm_meta.to_dict(),
         )
         return answer
 
@@ -199,8 +215,9 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
         call_trace=call_trace,
     )
 
+    llm_meta = None
     try:
-        response = call_llm(
+        response, llm_meta = call_llm_with_metadata(
             system_prompt=FINAL_ANSWER_SYSTEM_PROMPT,
             user_prompt=prompt,
             temperature=0.0,
@@ -208,10 +225,17 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
         final_text = response.strip()
     except Exception as exc:
         final_text = "Insufficient information in the provided document."
+        llm_meta = LLMCallMetadata(
+            provider="local",
+            model=None,
+            mode="rule_based_fallback",
+            reason=f"Final answer exception: {type(exc).__name__}",
+        )
 
     state.final_answer = final_text
     state.final_answer_generated = True
     state.status = "COMPLETED"
+    state.record_llm_call("final_answer", llm_meta.to_dict())
 
     logger.record(
         call_number=0,
@@ -222,6 +246,7 @@ def generate_final_answer(state: AgentState, logger: CallLogger) -> str:
         start_time=start_time,
         success=True,
         budget_remaining=0,
+        llm_metadata=llm_meta.to_dict(),
     )
 
     return final_text

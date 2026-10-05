@@ -204,6 +204,9 @@ class AgentController:
             "budget_remaining": budget.remaining,
             "trace": logger.get_trace(),
             "trace_summary": logger.get_trace_summary(),
+            "llm_calls": state.llm_calls,
+            "planner_llm_metadata": state.planner_llm_metadata,
+            "final_llm_metadata": state.final_llm_metadata,
         }
 
     def _select_best_candidate_page(

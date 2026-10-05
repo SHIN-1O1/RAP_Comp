@@ -6,7 +6,7 @@ from backend.agent.budget import CallBudget
 from backend.agent.logger import CallLogger
 from backend.agent.state import AgentState
 from backend.agent.prompts import PLANNING_SYSTEM_PROMPT, PLANNING_USER_PROMPT
-from backend.agent.llm_client import call_llm
+from backend.agent.llm_client import call_llm, call_llm_with_metadata, LLMCallMetadata
 
 
 DISALLOWED_STANDALONE_WORDS = {
@@ -75,8 +75,9 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
         question=state.question,
     )
 
+    llm_meta = None
     try:
-        response_text = call_llm(
+        response_text, llm_meta = call_llm_with_metadata(
             system_prompt=PLANNING_SYSTEM_PROMPT,
             user_prompt=prompt,
             temperature=0.0,
@@ -198,6 +199,9 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
         if state.entities and state.attributes:
             state.init_coverage_matrix(state.entities, state.attributes)
 
+        if llm_meta is not None:
+            state.record_llm_call("planning", llm_meta.to_dict())
+
         summary = f"Plan: intent={state.intent}, entities={state.entities}, attributes={state.attributes}, keywords={state.keywords}"
         logger.record(
             call_number=call_num,
@@ -208,6 +212,7 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
             start_time=start_time,
             success=True,
             budget_remaining=budget.remaining,
+            llm_metadata=llm_meta.to_dict() if llm_meta else None,
         )
         return {
             "intent": state.intent,
@@ -347,6 +352,15 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
             "reason": f"Fallback planner executed safely ({str(exc)})",
         }
 
+        if llm_meta is None:
+            llm_meta = LLMCallMetadata(
+                provider="local",
+                model=None,
+                mode="rule_based_fallback",
+                reason=f"Fallback planner: {type(exc).__name__}",
+            )
+        state.record_llm_call("planning", llm_meta.to_dict())
+
         logger.record(
             call_number=call_num,
             call_type="llm_planning",
@@ -357,6 +371,7 @@ def run_planning_step(state: AgentState, budget: CallBudget, logger: CallLogger)
             success=False,
             error=str(exc),
             budget_remaining=budget.remaining,
+            llm_metadata=llm_meta.to_dict(),
         )
         return fallback_plan
 

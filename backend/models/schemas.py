@@ -27,6 +27,7 @@ class CallRecordSchema(BaseModel):
     success: bool
     error: Optional[str] = None
     budget_remaining: int
+    llm_metadata: Optional[dict[str, Any]] = None
 
 
 class AskResponse(BaseModel):
@@ -40,6 +41,9 @@ class AskResponse(BaseModel):
     budget_remaining: int
     trace: list[CallRecordSchema]
     trace_summary: str
+    llm_calls: Optional[list[dict[str, Any]]] = None
+    planner_llm_metadata: Optional[dict[str, Any]] = None
+    final_llm_metadata: Optional[dict[str, Any]] = None
 
 
 class DocumentMetadataSchema(BaseModel):

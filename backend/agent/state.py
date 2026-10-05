@@ -54,6 +54,19 @@ class AgentState:
     final_answer: Optional[str] = None
     final_answer_generated: bool = False
 
+    planner_llm_metadata: Optional[dict[str, Any]] = None
+    final_llm_metadata: Optional[dict[str, Any]] = None
+    llm_calls: list[dict[str, Any]] = field(default_factory=list)
+
+    def record_llm_call(self, call_name: str, metadata: dict[str, Any]):
+        """Records metadata for an LLM call on the state object."""
+        entry = {"call": call_name, **metadata}
+        self.llm_calls.append(entry)
+        if call_name == "planning":
+            self.planner_llm_metadata = metadata
+        elif call_name == "final_answer":
+            self.final_llm_metadata = metadata
+
     def init_coverage_matrix(self, entities: list[str], attributes: list[str]):
         """Initializes the ENTITY x ATTRIBUTE matrix with NOT_ESTABLISHED."""
         self.entities = entities
